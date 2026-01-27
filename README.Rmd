@@ -16,18 +16,19 @@ knitr::opts_chunk$set(
 # difftrap
 
 <!-- badges: start -->
-[![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
-[![CRAN status](https://www.r-pkg.org/badges/version/difftrap)](https://CRAN.R-project.org/package=difftrap)
+[![R-CMD-check](https://github.com/paulklemm/difftrap/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/paulklemm/difftrap/actions/workflows/R-CMD-check.yaml)
+[![Codecov test coverage](https://codecov.io/gh/paulklemm/difftrap/graph/badge.svg)](https://app.codecov.io/gh/paulklemm/difftrap)
 <!-- badges: end -->
 
 The goal of difftrap is to ...
 
 ## Installation
 
-You can install the development version of difftrap like so:
+You can install the development version of difftrap from [GitHub](https://github.com/) with:
 
 ``` r
-# FILL THIS IN! HOW CAN PEOPLE INSTALL YOUR DEV PACKAGE?
+# install.packages("pak")
+pak::pak("paulklemm/difftrap")
 ```
 
 ## Example
@@ -35,7 +36,7 @@ You can install the development version of difftrap like so:
 This is a basic example which shows you how to solve a common problem:
 
 ```{r example}
-library(difftrap)
+# library(difftrap)
 ## basic example code
 ```
 
