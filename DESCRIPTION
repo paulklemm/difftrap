@@ -1,0 +1,14 @@
+Package: difftrap
+Title: What the Package Does (One Line, Title Case)
+Version: 0.0.0.9000
+Authors@R: 
+    person("Paul", "Klemm", , "paul.klemm@sf.mpg.de", role = c("aut", "cre"),
+           comment = c(ORCID = "https://orcid.org/0000-0002-5985-1737"))
+Description: What the package does (one paragraph).
+License: MIT + file LICENSE
+Suggests: 
+    testthat (>= 3.0.0)
+Config/testthat/edition: 3
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
