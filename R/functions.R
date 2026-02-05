@@ -5,7 +5,6 @@
 #' and gene-level analysis.
 #' 
 #' @author Bioinformatics Pipeline
-#' @date 2026-01-27
 
 
 # Required packages ------------------------------------------------------------
@@ -497,3 +496,65 @@ run_deseq2_pipeline <- function(config_json_path,
     ))
   }
 }
+
+
+#' Plot dispersion estimates for each treatment group
+#' 
+#' Generates dispersion plots for each treatment group individually to check
+#' for quality issues (e.g. issues with gene dispersions) between Input and IP 
+#' samples within specific treatments.
+#' 
+#' @param dds A DESeqDataSet object
+#' @param output_dir Directory to save plots. If NULL (default), plots are displayed.
+#' @return Invisible list of subsetted DESeqDataSet objects
+#' @export
+plot_treatment_dispersions <- function(dds, output_dir = NULL) {
+  
+  # Check for treatment column
+  if (is.null(dds$treatment)) {
+    stop("dds object must contain a 'treatment' column in colData")
+  }
+  
+  treatments <- levels(dds$treatment)
+  results_list <- list()
+  
+  if (!is.null(output_dir)) {
+    if (!dir.exists(output_dir)) {
+      dir.create(output_dir, recursive = TRUE)
+    }
+  }
+  
+  for (trt in treatments) {
+    cat(paste0("Generating dispersion plot for treatment: ", trt, "\n"))
+    
+    # Subset dds for the current treatment
+    dds_sub <- dds[, dds$treatment == trt]
+    
+    # Drop unused levels
+    dds_sub$treatment <- droplevels(dds_sub$treatment)
+    dds_sub$source <- droplevels(dds_sub$source)
+    
+    # Update design to account for source only (treatment is constant)
+    DESeq2::design(dds_sub) <- ~ source
+    
+    # Re-run DESeq2 (estimates dispersions for the subset)
+    # Using quiet=TRUE to suppress standard DESeq2 progress
+    dds_sub <- DESeq2::DESeq(dds_sub, quiet = TRUE)
+    
+    # Store result
+    results_list[[trt]] <- dds_sub
+    
+    # Plot
+    if (!is.null(output_dir)) {
+      pdf_file <- file.path(output_dir, paste0("dispersion_plot_", trt, ".pdf"))
+      grDevices::pdf(pdf_file)
+      DESeq2::plotDispEsts(dds_sub, main = paste("Dispersion Estimates:", trt))
+      grDevices::dev.off()
+    } else {
+      DESeq2::plotDispEsts(dds_sub, main = paste("Dispersion Estimates:", trt))
+    }
+  }
+  
+  invisible(results_list)
+}
+

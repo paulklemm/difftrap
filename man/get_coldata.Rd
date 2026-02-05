@@ -19,4 +19,5 @@ and gene-level analysis.
 }
 \author{
 Bioinformatics Pipeline
+Get col_data for DESeq2 from JSON config
 }
