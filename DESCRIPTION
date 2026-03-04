@@ -1,6 +1,6 @@
 Package: difftrap
 Title: What the Package Does (One Line, Title Case)
-Version: 0.0.0.9000
+Version: 0.0.0.9001
 Authors@R: 
     person("Paul", "Klemm", , "paul.klemm@sf.mpg.de", role = c("aut", "cre"),
            comment = c(ORCID = "https://orcid.org/0000-0002-5985-1737"))

@@ -6,7 +6,6 @@
 #' 
 #' @author Bioinformatics Pipeline
 
-
 # Required packages ------------------------------------------------------------
 # jsonlite, dplyr, purrr, magrittr, forcats, tibble, rtracklayer, 
 # tximport, DESeq2, knitr
@@ -118,7 +117,8 @@ create_tx2gene <- function(gtf, verbose = TRUE) {
   tx2gene <- data.frame(
     tx = gtf$transcript_id[!is.na(gtf$transcript_id)],
     gene = gtf$gene_id[!is.na(gtf$transcript_id)]
-  )
+  ) %>%
+    dplyr::distinct() # Remove duplicates
   
   if (verbose) {
     cat("tx2gene mapping:", nrow(tx2gene), "transcript-gene pairs\n")
