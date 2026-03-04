@@ -15,6 +15,10 @@
 )
 }
 \description{
-Helper function to run single-level analysis
+Creates separate DESeq2 models for interaction and non-interaction contrasts.
+The full interaction model (all samples) is used only for the interaction
+term. Non-interaction contrasts use subset models with only the relevant
+samples and a simpler design formula, providing better dispersion estimates
+when IP/Input differences are large.
 }
 \keyword{internal}

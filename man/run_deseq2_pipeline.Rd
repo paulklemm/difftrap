@@ -30,8 +30,10 @@ run_deseq2_pipeline(
 \item{verbose}{Print progress messages}
 }
 \value{
-If level="both": list with "transcript" and "gene" elements, each containing analysis results
-Otherwise: list containing dds, master_results, summary_stats, and other objects
+If level="both": list with "transcript" and "gene" elements, each containing analysis results.
+Otherwise: list containing dds_list (named list of DESeqDataSet objects:
+"full" for interaction model, "subset_*" for per-group models),
+master_results, summary_stats, and other objects
 }
 \description{
 Complete DESeq2 pipeline from config to results

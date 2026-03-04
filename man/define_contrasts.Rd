@@ -12,8 +12,14 @@ define_contrasts(factor_levels, verbose = TRUE)
 \item{verbose}{Print contrast info (default: TRUE)}
 }
 \value{
-Tibble with contrast definitions
+Tibble with contrast definitions including model_type, model_id,
+subset_variable, and subset_level columns
 }
 \description{
-Define contrasts for differential expression analysis
+Defines contrasts using separate models for non-interaction effects and
+the full interaction model only for the interaction term. Non-interaction
+contrasts (source effects within a treatment, treatment effects within a
+source) use subset models that only include the relevant samples.
+This avoids distorted dispersion estimates when the IP/Input difference is
+large, and allows apeglm shrinkage for all contrasts.
 }

@@ -4,12 +4,19 @@
 \alias{extract_de_results}
 \title{Extract differential expression results with shrinkage}
 \usage{
-extract_de_results(dds, contrasts_info, tx2gene = NULL, level = "transcript")
+extract_de_results(
+  dds_list,
+  contrasts_info,
+  tx2gene = NULL,
+  level = "transcript"
+)
 }
 \arguments{
-\item{dds}{DESeqDataSet object}
+\item{dds_list}{Named list of DESeqDataSet objects (e.g. "full" for
+interaction model, "subset_treatment_X" / "subset_source_X" for subset models)}
 
-\item{contrasts_info}{Contrasts definition tibble from define_contrasts()}
+\item{contrasts_info}{Contrasts definition tibble from define_contrasts(),
+must contain coef, shrinkage_method, and model_id columns}
 
 \item{tx2gene}{Transcript-to-gene mapping (NULL for gene-level)}
 
@@ -19,5 +26,7 @@ extract_de_results(dds, contrasts_info, tx2gene = NULL, level = "transcript")
 List of DESeq2 results objects
 }
 \description{
-Extract differential expression results with shrinkage
+Extracts results from the appropriate DESeq2 model for each contrast.
+Each contrast specifies a model_id that maps to the corresponding
+DESeqDataSet in dds_list.
 }

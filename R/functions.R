@@ -245,9 +245,17 @@ create_deseq_dataset <- function(txi, col_data,
 
 #' Define contrasts for differential expression analysis
 #'
+#' Defines contrasts using separate models for non-interaction effects and
+#' the full interaction model only for the interaction term. Non-interaction
+#' contrasts (source effects within a treatment, treatment effects within a
+#' source) use subset models that only include the relevant samples.
+#' This avoids distorted dispersion estimates when the IP/Input difference is
+#' large, and allows apeglm shrinkage for all contrasts.
+#'
 #' @param factor_levels List with treatment_a, treatment_b, source_a, source_b
 #' @param verbose Print contrast info (default: TRUE)
-#' @return Tibble with contrast definitions
+#' @return Tibble with contrast definitions including model_type, model_id,
+#'   subset_variable, and subset_level columns
 #' @export
 define_contrasts <- function(factor_levels, verbose = TRUE) {
   treatment_a <- factor_levels$treatment_a
@@ -267,20 +275,28 @@ define_contrasts <- function(factor_levels, verbose = TRUE) {
   # The results are b vs a (log2(b/a)), so we should label them b_vs_a
   source_coef_print <- paste0(source_b, "_vs_", source_a)
   treatment_coef_print <- paste0(treatment_b, "_vs_", treatment_a)
-  interaction_coef_print <- paste0(source_a, "_", treatment_a, "_vs_", source_b, "_", treatment_b)
   
-  # Define contrasts with appropriate shrinkage method
+  # Model IDs for subset models
+  subset_treatment_a_id <- paste0("subset_treatment_", make.names(treatment_a))
+  subset_treatment_b_id <- paste0("subset_treatment_", make.names(treatment_b))
+  subset_source_a_id <- paste0("subset_source_", make.names(source_a))
+  subset_source_b_id <- paste0("subset_source_", make.names(source_b))
+  
+  # Define contrasts with model type information
+  # Non-interaction contrasts use separate subset models for better dispersion
+  # estimation when the IP/Input difference is large.
+  # All contrasts use single coefficients, enabling apeglm shrinkage.
   contrasts_info <- tibble::tribble(
-    ~effect_name, ~description, ~coefs_to_use, ~shrinkage_method,
-    paste0(source_coef_print, "_in_", treatment_a), paste("Source effect in", treatment_a), source_coef_name, "apeglm",
-    paste0(source_coef_print, "_in_", treatment_b), paste("Source effect in", treatment_b), c(source_coef_name, interaction_coef_name), "ashr",
-    paste0(treatment_coef_print, "_in_", source_a), paste("Treatment effect in", source_a), treatment_coef_name, "apeglm",
-    paste0(treatment_coef_print, "_in_", source_b), paste("Treatment effect in", source_b), c(treatment_coef_name, interaction_coef_name), "ashr",
-    "interaction_effect", "Interaction term", interaction_coef_name, "apeglm"
+    ~effect_name, ~description, ~coef, ~shrinkage_method, ~model_type, ~model_id, ~subset_variable, ~subset_level,
+    paste0(source_coef_print, "_in_", treatment_a), paste("Source effect in", treatment_a), source_coef_name, "apeglm", "subset", subset_treatment_a_id, "treatment", treatment_a,
+    paste0(source_coef_print, "_in_", treatment_b), paste("Source effect in", treatment_b), source_coef_name, "apeglm", "subset", subset_treatment_b_id, "treatment", treatment_b,
+    paste0(treatment_coef_print, "_in_", source_a), paste("Treatment effect in", source_a), treatment_coef_name, "apeglm", "subset", subset_source_a_id, "source", source_a,
+    paste0(treatment_coef_print, "_in_", source_b), paste("Treatment effect in", source_b), treatment_coef_name, "apeglm", "subset", subset_source_b_id, "source", source_b,
+    "interaction_effect", "Interaction term", interaction_coef_name, "apeglm", "full", "full", NA_character_, NA_character_
   )
   
   if (verbose) {
-    print(contrasts_info %>% dplyr::select(effect_name, description, shrinkage_method))
+    print(contrasts_info %>% dplyr::select(effect_name, description, model_type, model_id, shrinkage_method))
   }
   
   return(contrasts_info)
@@ -291,25 +307,31 @@ define_contrasts <- function(factor_levels, verbose = TRUE) {
 
 #' Extract differential expression results with shrinkage
 #'
-#' @param dds DESeqDataSet object
-#' @param contrasts_info Contrasts definition tibble from define_contrasts()
+#' Extracts results from the appropriate DESeq2 model for each contrast.
+#' Each contrast specifies a model_id that maps to the corresponding
+#' DESeqDataSet in dds_list.
+#'
+#' @param dds_list Named list of DESeqDataSet objects (e.g. "full" for
+#'   interaction model, "subset_treatment_X" / "subset_source_X" for subset models)
+#' @param contrasts_info Contrasts definition tibble from define_contrasts(),
+#'   must contain coef, shrinkage_method, and model_id columns
 #' @param tx2gene Transcript-to-gene mapping (NULL for gene-level)
 #' @param level Quantification level ("transcript" or "gene")
 #' @return List of DESeq2 results objects
 #' @export
-extract_de_results <- function(dds, contrasts_info, tx2gene = NULL, level = "transcript") {
-  results_list <- purrr::map2(
-    contrasts_info$coefs_to_use,
-    contrasts_info$shrinkage_method,
-    function(coefs_vector, method) {
-      if (length(coefs_vector) == 1) {
-        # Simple coefficient - use apeglm (more accurate)
-        DESeq2::lfcShrink(dds, coef = coefs_vector[1], type = method)
-      } else {
-        # Combined coefficients - must use ashr
-        # ashr supports contrast list syntax
-        DESeq2::lfcShrink(dds, contrast = list(coefs_vector, character(0)), type = method)
+extract_de_results <- function(dds_list, contrasts_info, tx2gene = NULL, level = "transcript") {
+  results_list <- purrr::pmap(
+    list(
+      coef = contrasts_info$coef,
+      method = contrasts_info$shrinkage_method,
+      model_id = contrasts_info$model_id
+    ),
+    function(coef, method, model_id) {
+      dds <- dds_list[[model_id]]
+      if (is.null(dds)) {
+        stop("No DESeq2 model found for model_id: ", model_id)
       }
+      DESeq2::lfcShrink(dds, coef = coef, type = method)
     }
   )
   
@@ -389,17 +411,63 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
 
 #' Helper function to run single-level analysis
 #'
+#' Creates separate DESeq2 models for interaction and non-interaction contrasts.
+#' The full interaction model (all samples) is used only for the interaction
+#' term. Non-interaction contrasts use subset models with only the relevant
+#' samples and a simpler design formula, providing better dispersion estimates
+#' when IP/Input differences are large.
+#'
 #' @keywords internal
 .run_single_level_analysis <- function(col_data, tx2gene, level, 
                                        contrasts_info, design, alpha, verbose) {
   if (verbose) cat("=== Importing Salmon data (", level, "-level) ===\n", sep = "")
   txi <- import_salmon_data(col_data, tx2gene, level = level)
   
-  if (verbose) cat("=== Creating DESeq2 dataset ===\n")
-  dds <- create_deseq_dataset(txi, col_data, level = level, design = design, verbose = verbose)
+  dds_list <- list()
+  
+  # --- Full interaction model (all samples) for interaction term ---
+  full_contrasts <- contrasts_info %>% dplyr::filter(model_type == "full")
+  if (nrow(full_contrasts) > 0) {
+    if (verbose) cat("=== Creating full DESeq2 dataset (interaction model, all samples) ===\n")
+    dds_list[["full"]] <- create_deseq_dataset(
+      txi, col_data, level = level, design = design, verbose = verbose
+    )
+  }
+  
+  # --- Subset models for non-interaction contrasts ---
+  # Each subset model uses only the relevant samples (e.g. one treatment group)
+  # with a simpler design formula (~ source or ~ treatment).
+  subset_contrasts <- contrasts_info %>% dplyr::filter(model_type == "subset")
+  if (nrow(subset_contrasts) > 0) {
+    unique_subsets <- subset_contrasts %>%
+      dplyr::distinct(model_id, subset_variable, subset_level)
+    
+    for (i in seq_len(nrow(unique_subsets))) {
+      sub_var <- unique_subsets$subset_variable[i]
+      sub_level <- unique_subsets$subset_level[i]
+      mid <- unique_subsets$model_id[i]
+      
+      if (verbose) cat("=== Creating subset DESeq2 dataset:", sub_var, "=", sub_level, "===\n")
+      
+      # Subset col_data and drop unused factor levels
+      col_data_sub <- col_data[col_data[[sub_var]] == sub_level, ]
+      col_data_sub <- col_data_sub %>%
+        dplyr::mutate(dplyr::across(dplyr::where(is.factor), droplevels))
+      
+      # Import quantification data for the subset samples
+      txi_sub <- import_salmon_data(col_data_sub, tx2gene, level = level)
+      
+      # Simpler design: model only the remaining variable
+      sub_design <- if (sub_var == "treatment") ~ source else ~ treatment
+      
+      dds_list[[mid]] <- create_deseq_dataset(
+        txi_sub, col_data_sub, level = level, design = sub_design, verbose = verbose
+      )
+    }
+  }
   
   if (verbose) cat("=== Extracting differential expression results ===\n")
-  results_list <- extract_de_results(dds, contrasts_info, tx2gene = tx2gene, level = level)
+  results_list <- extract_de_results(dds_list, contrasts_info, tx2gene = tx2gene, level = level)
   
   if (verbose) cat("=== Converting results to tibble ===\n")
   master_results <- results_to_tibble(results_list, contrasts_info, tx2gene = tx2gene, level = level)
@@ -410,7 +478,7 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
   if (verbose) cat("=== ", toupper(level), "-level analysis complete ===\n", sep = "")
   
   return(list(
-    dds = dds,
+    dds_list = dds_list,
     master_results = master_results,
     summary_stats = summary_stats,
     col_data = col_data,
@@ -434,8 +502,10 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
 #' @param design Design formula for DESeq2
 #' @param alpha Significance threshold
 #' @param verbose Print progress messages
-#' @return If level="both": list with "transcript" and "gene" elements, each containing analysis results
-#'         Otherwise: list containing dds, master_results, summary_stats, and other objects
+#' @return If level="both": list with "transcript" and "gene" elements, each containing analysis results.
+#'         Otherwise: list containing dds_list (named list of DESeqDataSet objects:
+#'         "full" for interaction model, "subset_*" for per-group models),
+#'         master_results, summary_stats, and other objects
 #' @export
 run_deseq2_pipeline <- function(config_json_path,
                                 gtf_path,
