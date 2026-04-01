@@ -134,12 +134,14 @@ create_tx2gene <- function(gtf, verbose = TRUE) {
 #' @param col_data Column data with filepath and sample_name columns
 #' @param tx2gene Transcript-to-gene mapping data.frame
 #' @param level Quantification level: "transcript" or "gene" (default: "transcript")
-#' @param counts_from_abundance Abundance scaling method (default: "scaledTPM")
+#' @param counts_from_abundance Abundance scaling method (default: "no").
+#'   DESeq2 accounts for transcript length via the offset matrix that tximport
+#'   provides, so scaling counts by abundance is unnecessary.
 #' @return tximport object
 #' @export
 import_salmon_data <- function(col_data, tx2gene, 
                                level = "transcript",
-                               counts_from_abundance = "scaledTPM") {
+                               counts_from_abundance = "no") {
   # Validate level parameter
   if (!level %in% c("transcript", "gene")) {
     stop("level must be 'transcript' or 'gene'")
