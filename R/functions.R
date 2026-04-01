@@ -235,9 +235,13 @@ create_deseq_dataset <- function(txi, col_data,
   dds <- DESeq2::DESeq(dds)
   
   if (verbose) {
-    # Check size factors
+    # Check size factors (may be NULL when normalizationFactors are used, e.g. from tximport)
     size_factors <- DESeq2::sizeFactors(dds)
-    cat("Size factors (should be ~1):", round(size_factors, 3), "\n")
+    if (!is.null(size_factors)) {
+      cat("Size factors (should be ~1):", round(size_factors, 3), "\n")
+    } else {
+      cat("Using normalization factors from tximport (avgTxLength correction)\n")
+    }
   }
   
   return(dds)
