@@ -1,9 +1,25 @@
 <urlset xmlns = 'http://www.sitemaps.org/schemas/sitemap/0.9'>
 <url><loc>/404.html</loc></url>
+<url><loc>/CLAUDE.html</loc></url>
 <url><loc>/LICENSE-text.html</loc></url>
 <url><loc>/LICENSE.html</loc></url>
 <url><loc>/authors.html</loc></url>
 <url><loc>/index.html</loc></url>
+<url><loc>/reference/add_filepaths.html</loc></url>
+<url><loc>/reference/calculate_summary_stats.html</loc></url>
+<url><loc>/reference/create_deseq_dataset.html</loc></url>
+<url><loc>/reference/create_tx2gene.html</loc></url>
+<url><loc>/reference/define_contrasts.html</loc></url>
+<url><loc>/reference/difftrap-package.html</loc></url>
+<url><loc>/reference/dot-run_single_level_analysis.html</loc></url>
+<url><loc>/reference/extract_de_results.html</loc></url>
+<url><loc>/reference/extract_factor_levels.html</loc></url>
+<url><loc>/reference/get_coldata.html</loc></url>
+<url><loc>/reference/import_salmon_data.html</loc></url>
 <url><loc>/reference/index.html</loc></url>
+<url><loc>/reference/load_gtf.html</loc></url>
+<url><loc>/reference/plot_treatment_dispersions.html</loc></url>
+<url><loc>/reference/results_to_tibble.html</loc></url>
+<url><loc>/reference/run_deseq2_pipeline.html</loc></url>
 </urlset>
 
