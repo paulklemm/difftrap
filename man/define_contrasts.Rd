@@ -23,3 +23,15 @@ source) use subset models that only include the relevant samples.
 This avoids distorted dispersion estimates when the IP/Input difference is
 large, and allows apeglm shrinkage for all contrasts.
 }
+\details{
+Assumes a 2x2 factorial design (exactly two levels for \code{treatment} and
+two for \code{source}).
+
+Note: because the four "effect-within-group" contrasts come from subset
+models (per-subset dispersions and per-subset tximport offsets) while the
+interaction contrast comes from the full model (pooled dispersions), the
+interaction LFC is \strong{not} equal to the algebraic difference of the two
+source-in-treatment (or treatment-in-source) LFCs. Treat the interaction
+as its own estimate from the full model rather than as a derived
+difference.
+}

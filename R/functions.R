@@ -1,75 +1,102 @@
-#' DESeq2 RNA-seq Analysis Pipeline
-#' 
-#' A complete pipeline for differential expression analysis using DESeq2
-#' with tximport for Salmon quantification data. Supports both transcript-level
-#' and gene-level analysis.
-#' 
-#' @author Bioinformatics Pipeline
-
-# Required packages ------------------------------------------------------------
-# jsonlite, dplyr, purrr, magrittr, forcats, tibble, rtracklayer, 
-# tximport, DESeq2, knitr
-
-
-
 #' Get col_data for DESeq2 from JSON config
+#'
+#' Builds the sample-level metadata table from a parsed JSON config and
+#' relevels the `treatment` and `source` factors so that DESeq2 uses the
+#' intended reference (denominator) level.
+#'
+#' Expected `settings` structure:
+#' * `treatment`: named list mapping each treatment group to a vector of
+#'   sample names (e.g. `list(WT = c("s1","s2"), KO = c("s3","s4"))`).
+#' * `source`: named list mapping each source group (e.g. IP, Input) to a
+#'   vector of sample names. Every sample must appear in exactly one
+#'   treatment group **and** exactly one source group.
+#' * `treatment_comparison`: length-2 character vector
+#'   `c(numerator, denominator)`, e.g. `c("KO", "WT")` to test KO vs WT.
+#' * `source_comparison`: length-2 character vector `c(numerator, denominator)`.
+#'
+#' Both `*_comparison` vectors must list exactly the levels present in the
+#' corresponding group. The function fails fast if any required key is
+#' missing, references an unknown level, or if a sample is missing from
+#' either grouping.
 #'
 #' @param settings Configurations object from JSON
 #' @return col_data tibble with treatment and source columns
 #' @export
-#' @import purrr magrittr jsonlite dplyr forcats tibble
 get_coldata <- function(settings) {
-  # Iterate over group names and create treatment column
+  required <- c("treatment", "source", "treatment_comparison", "source_comparison")
+  missing_keys <- setdiff(required, names(settings))
+  if (length(missing_keys) > 0) {
+    stop("Config is missing required key(s): ", paste(missing_keys, collapse = ", "))
+  }
+
   col_data_treatment <- dplyr::bind_rows(
-    settings$treatment %>%
-      # Iterate over all treatment names
-      names() %>%
-      purrr::map(function(group_name) {
-        # Create tibble for treatment and its samples
-        tibble::tibble(
-          treatment = group_name,
-          sample_name = settings$treatment[group_name] %>% unlist()
-        ) %>% return()
-      })
+    purrr::map(names(settings$treatment), function(group_name) {
+      tibble::tibble(
+        treatment = group_name,
+        sample_name = unlist(settings$treatment[[group_name]])
+      )
+    })
   )
-  
-  # Attach IP/Input to col_data
+
   col_data_source <- dplyr::bind_rows(
-    settings$source %>%
-      names() %>%
-      purrr::map(function(group_name) {
-        tibble::tibble(
-          source = group_name,
-          sample_name = settings$source[group_name] %>% unlist()
-        ) %>% return()
-      })
+    purrr::map(names(settings$source), function(group_name) {
+      tibble::tibble(
+        source = group_name,
+        sample_name = unlist(settings$source[[group_name]])
+      )
+    })
   )
-  
-  # Join col_data source and treatment
-  col_data <- dplyr::left_join(
+
+  # Use full_join so unmatched samples surface as NAs we can report.
+  col_data <- dplyr::full_join(
     x = col_data_source,
     y = col_data_treatment,
     by = "sample_name"
   )
-  
-  # Get the proper factor levels of treatment and source in col_data
-  # The first element in the comparison list is the "treatment" (numerator),
-  # the second is the "reference" (denominator).
-  # DESeq2 uses the first factor level as reference.
-  # So we reverse the input list to set the second element as the first level.
+
+  missing_treatment <- col_data$sample_name[is.na(col_data$treatment)]
+  missing_source <- col_data$sample_name[is.na(col_data$source)]
+  if (length(missing_treatment) > 0 || length(missing_source) > 0) {
+    stop(
+      "Every sample must appear in both 'source' and 'treatment' groupings.",
+      if (length(missing_treatment) > 0)
+        paste0("\n  Missing from treatment: ", paste(missing_treatment, collapse = ", ")),
+      if (length(missing_source) > 0)
+        paste0("\n  Missing from source: ", paste(missing_source, collapse = ", "))
+    )
+  }
+
+  # DESeq2 uses the first factor level as the reference (denominator), so we
+  # reverse the user-provided c(numerator, denominator) to put the denominator
+  # in position 1.
   treatment_fct_levels <- rev(unlist(settings$treatment_comparison))
   source_fct_levels <- rev(unlist(settings$source_comparison))
-  
-  col_data <-
-    col_data %>%
+
+  validate_comparison <- function(values, observed, name) {
+    if (length(values) != 2) {
+      stop(name, " must be a length-2 vector c(numerator, denominator); got length ",
+           length(values))
+    }
+    unknown <- setdiff(values, observed)
+    if (length(unknown) > 0) {
+      stop(name, " references level(s) not present in the data: ",
+           paste(unknown, collapse = ", "),
+           "\n  Observed levels: ", paste(observed, collapse = ", "))
+    }
+    extra <- setdiff(observed, values)
+    if (length(extra) > 0) {
+      stop(name, " must list every observed level. Missing: ",
+           paste(extra, collapse = ", "))
+    }
+  }
+  validate_comparison(treatment_fct_levels, unique(col_data$treatment), "treatment_comparison")
+  validate_comparison(source_fct_levels, unique(col_data$source), "source_comparison")
+
+  col_data %>%
     dplyr::mutate(
-      treatment = forcats::as_factor(treatment) %>%
-        forcats::fct_relevel(treatment_fct_levels),
-      source = forcats::as_factor(source) %>%
-        forcats::fct_relevel(source_fct_levels)
+      treatment = forcats::fct_relevel(forcats::as_factor(treatment), treatment_fct_levels),
+      source = forcats::fct_relevel(forcats::as_factor(source), source_fct_levels)
     )
-  
-  return(col_data)
 }
 
 
@@ -115,16 +142,28 @@ load_gtf <- function(gtf_path) {
 #' @export
 create_tx2gene <- function(gtf, verbose = TRUE) {
   tx2gene <- data.frame(
-    tx = gtf$transcript_id[!is.na(gtf$transcript_id)],
-    gene = gtf$gene_id[!is.na(gtf$transcript_id)]
+    tx = gtf$transcript_id,
+    gene = gtf$gene_id
   ) %>%
-    dplyr::distinct() # Remove duplicates
-  
-  if (verbose) {
-    cat("tx2gene mapping:", nrow(tx2gene), "transcript-gene pairs\n")
+    dplyr::filter(!is.na(tx)) %>%
+    dplyr::distinct()
+
+  # Downstream joins rely on a one-to-one tx -> gene mapping. Surface
+  # ambiguous transcripts here with a clear message rather than letting a
+  # generic dplyr "many-to-one" error fire deep in results_to_tibble().
+  multi_gene_tx <- tx2gene$tx[duplicated(tx2gene$tx)]
+  if (length(multi_gene_tx) > 0) {
+    stop(length(unique(multi_gene_tx)),
+         " transcript ID(s) map to more than one gene_id in the GTF, e.g.: ",
+         paste(utils::head(unique(multi_gene_tx), 5), collapse = ", "),
+         ". Resolve the ambiguity in the GTF before continuing.")
   }
-  
-  return(tx2gene)
+
+  if (verbose) {
+    message("tx2gene mapping: ", nrow(tx2gene), " transcript-gene pairs")
+  }
+
+  tx2gene
 }
 
 
@@ -156,23 +195,23 @@ import_salmon_data <- function(col_data, tx2gene,
   if (length(missing_files) > 0) {
     stop("Missing quantification files:\n", paste(missing_files, collapse = "\n"))
   }
-  
-  tx_out <- ifelse(level == "transcript", TRUE, FALSE)
-  
-  txi <- tximport::tximport(
+
+  tximport::tximport(
     files_vector,
     type = "salmon",
     tx2gene = tx2gene,
-    txOut = tx_out,
+    txOut = level == "transcript",
     countsFromAbundance = counts_from_abundance
   )
-  
-  return(txi)
 }
 
 
 
 #' Extract factor levels from col_data
+#'
+#' Requires both `treatment` and `source` to have exactly two factor levels.
+#' The first level (reference, denominator in DESeq2) is returned as `*_a`
+#' and the second (numerator) as `*_b`.
 #'
 #' @param col_data Column data tibble with treatment and source factors
 #' @param print_table Print summary table (default: TRUE)
@@ -181,28 +220,29 @@ import_salmon_data <- function(col_data, tx2gene,
 extract_factor_levels <- function(col_data, print_table = TRUE) {
   treatment_levels <- levels(col_data$treatment)
   source_levels <- levels(col_data$source)
-  
-  if (length(treatment_levels) < 2 || length(source_levels) < 2) {
-    stop("Need at least 2 levels for both treatment and source")
+
+  if (length(treatment_levels) != 2 || length(source_levels) != 2) {
+    stop("Need exactly 2 levels for both treatment and source (got ",
+         length(treatment_levels), " and ", length(source_levels), ")")
   }
-  
+
   factor_levels <- list(
     treatment_a = treatment_levels[1],
     treatment_b = treatment_levels[2],
     source_a = source_levels[1],
     source_b = source_levels[2]
   )
-  
+
   if (print_table) {
     summary_table <- tibble::tibble(
       condition = c("a", "b"),
       treatment = c(factor_levels$treatment_a, factor_levels$treatment_b),
       source = c(factor_levels$source_a, factor_levels$source_b)
     )
-    print(knitr::kable(summary_table))
+    print(summary_table)
   }
-  
-  return(factor_levels)
+
+  factor_levels
 }
 
 
@@ -225,26 +265,27 @@ create_deseq_dataset <- function(txi, col_data,
     colData = col_data,
     design = design
   )
-  
+
   if (verbose) {
-    feature_type <- ifelse(level == "transcript", "transcripts", "genes")
-    cat("DESeq2 object dimensions:", dim(dds)[1], feature_type, "x", dim(dds)[2], "samples\n")
+    feature_type <- if (level == "transcript") "transcripts" else "genes"
+    message("DESeq2 object dimensions: ", dim(dds)[1], " ", feature_type,
+            " x ", dim(dds)[2], " samples")
   }
-  
-  # Run DESeq2 analysis
+
   dds <- DESeq2::DESeq(dds)
-  
+
   if (verbose) {
     # Check size factors (may be NULL when normalizationFactors are used, e.g. from tximport)
     size_factors <- DESeq2::sizeFactors(dds)
     if (!is.null(size_factors)) {
-      cat("Size factors (should be ~1):", round(size_factors, 3), "\n")
+      message("Size factors (should be ~1): ",
+              paste(round(size_factors, 3), collapse = " "))
     } else {
-      cat("Using normalization factors from tximport (avgTxLength correction)\n")
+      message("Using normalization factors from tximport (avgTxLength correction)")
     }
   }
-  
-  return(dds)
+
+  dds
 }
 
 
@@ -257,6 +298,17 @@ create_deseq_dataset <- function(txi, col_data,
 #' source) use subset models that only include the relevant samples.
 #' This avoids distorted dispersion estimates when the IP/Input difference is
 #' large, and allows apeglm shrinkage for all contrasts.
+#'
+#' Assumes a 2x2 factorial design (exactly two levels for `treatment` and
+#' two for `source`).
+#'
+#' Note: because the four "effect-within-group" contrasts come from subset
+#' models (per-subset dispersions and per-subset tximport offsets) while the
+#' interaction contrast comes from the full model (pooled dispersions), the
+#' interaction LFC is **not** equal to the algebraic difference of the two
+#' source-in-treatment (or treatment-in-source) LFCs. Treat the interaction
+#' as its own estimate from the full model rather than as a derived
+#' difference.
 #'
 #' @param factor_levels List with treatment_a, treatment_b, source_a, source_b
 #' @param verbose Print contrast info (default: TRUE)
@@ -304,8 +356,8 @@ define_contrasts <- function(factor_levels, verbose = TRUE) {
   if (verbose) {
     print(contrasts_info %>% dplyr::select(effect_name, description, model_type, model_id, shrinkage_method))
   }
-  
-  return(contrasts_info)
+
+  contrasts_info
 }
 
 
@@ -321,11 +373,9 @@ define_contrasts <- function(factor_levels, verbose = TRUE) {
 #'   interaction model, "subset_treatment_X" / "subset_source_X" for subset models)
 #' @param contrasts_info Contrasts definition tibble from define_contrasts(),
 #'   must contain coef, shrinkage_method, and model_id columns
-#' @param tx2gene Transcript-to-gene mapping (NULL for gene-level)
-#' @param level Quantification level ("transcript" or "gene")
 #' @return List of DESeq2 results objects
 #' @export
-extract_de_results <- function(dds_list, contrasts_info, tx2gene = NULL, level = "transcript") {
+extract_de_results <- function(dds_list, contrasts_info) {
   results_list <- purrr::pmap(
     list(
       coef = contrasts_info$coef,
@@ -340,10 +390,9 @@ extract_de_results <- function(dds_list, contrasts_info, tx2gene = NULL, level =
       DESeq2::lfcShrink(dds, coef = coef, type = method)
     }
   )
-  
+
   names(results_list) <- contrasts_info$effect_name
-  
-  return(results_list)
+  results_list
 }
 
 
@@ -361,30 +410,31 @@ results_to_tibble <- function(results_list, contrasts_info, tx2gene = NULL, leve
     stop("tx2gene mapping required for transcript-level results")
   }
   
-  master_results <- purrr::imap(results_list, function(res, effect_name) {
-    result_tbl <- res %>%
-      tibble::as_tibble(rownames = "feature_id")
-    
-    # For transcript level, add gene info; for gene level, rename column
+  shrinkage_lookup <- stats::setNames(contrasts_info$shrinkage_method,
+                                      contrasts_info$effect_name)
+
+  purrr::imap(results_list, function(res, effect_name) {
+    result_tbl <- tibble::as_tibble(res, rownames = "feature_id")
+
     if (level == "transcript") {
-      result_tbl <- result_tbl %>%
-        dplyr::left_join(tx2gene, by = c("feature_id" = "tx"))
+      result_tbl <- dplyr::left_join(
+        result_tbl, tx2gene,
+        by = c("feature_id" = "tx"),
+        relationship = "many-to-one"
+      )
     } else {
-      result_tbl <- result_tbl %>%
-        dplyr::rename(gene = feature_id)
+      result_tbl <- dplyr::rename(result_tbl, gene = "feature_id")
     }
-    
+
     result_tbl %>%
       dplyr::mutate(
         effect = effect_name,
-        shrinkage_method = contrasts_info$shrinkage_method[contrasts_info$effect_name == effect_name],
+        shrinkage_method = shrinkage_lookup[[effect_name]],
         level = level
       ) %>%
       dplyr::arrange(padj)
   }) %>%
     dplyr::bind_rows()
-  
-  return(master_results)
 }
 
 
@@ -409,8 +459,8 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
   if (verbose) {
     print(summary_stats)
   }
-  
-  return(summary_stats)
+
+  summary_stats
 }
 
 
@@ -424,22 +474,22 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
 #' when IP/Input differences are large.
 #'
 #' @keywords internal
-.run_single_level_analysis <- function(col_data, tx2gene, level, 
+.run_single_level_analysis <- function(col_data, tx2gene, level,
                                        contrasts_info, design, alpha, verbose) {
-  if (verbose) cat("=== Importing Salmon data (", level, "-level) ===\n", sep = "")
+  if (verbose) message("=== Importing Salmon data (", level, "-level) ===")
   txi <- import_salmon_data(col_data, tx2gene, level = level)
-  
+
   dds_list <- list()
-  
+
   # --- Full interaction model (all samples) for interaction term ---
   full_contrasts <- contrasts_info %>% dplyr::filter(model_type == "full")
   if (nrow(full_contrasts) > 0) {
-    if (verbose) cat("=== Creating full DESeq2 dataset (interaction model, all samples) ===\n")
+    if (verbose) message("=== Creating full DESeq2 dataset (interaction model, all samples) ===")
     dds_list[["full"]] <- create_deseq_dataset(
       txi, col_data, level = level, design = design, verbose = verbose
     )
   }
-  
+
   # --- Subset models for non-interaction contrasts ---
   # Each subset model uses only the relevant samples (e.g. one treatment group)
   # with a simpler design formula (~ source or ~ treatment).
@@ -447,43 +497,40 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
   if (nrow(subset_contrasts) > 0) {
     unique_subsets <- subset_contrasts %>%
       dplyr::distinct(model_id, subset_variable, subset_level)
-    
+
     for (i in seq_len(nrow(unique_subsets))) {
       sub_var <- unique_subsets$subset_variable[i]
       sub_level <- unique_subsets$subset_level[i]
       mid <- unique_subsets$model_id[i]
-      
-      if (verbose) cat("=== Creating subset DESeq2 dataset:", sub_var, "=", sub_level, "===\n")
-      
-      # Subset col_data and drop unused factor levels
+
+      if (verbose) message("=== Creating subset DESeq2 dataset: ", sub_var, " = ", sub_level, " ===")
+
       col_data_sub <- col_data[col_data[[sub_var]] == sub_level, ]
       col_data_sub <- col_data_sub %>%
         dplyr::mutate(dplyr::across(dplyr::where(is.factor), droplevels))
-      
-      # Import quantification data for the subset samples
+
       txi_sub <- import_salmon_data(col_data_sub, tx2gene, level = level)
-      
-      # Simpler design: model only the remaining variable
+
       sub_design <- if (sub_var == "treatment") ~ source else ~ treatment
-      
+
       dds_list[[mid]] <- create_deseq_dataset(
         txi_sub, col_data_sub, level = level, design = sub_design, verbose = verbose
       )
     }
   }
-  
-  if (verbose) cat("=== Extracting differential expression results ===\n")
-  results_list <- extract_de_results(dds_list, contrasts_info, tx2gene = tx2gene, level = level)
-  
-  if (verbose) cat("=== Converting results to tibble ===\n")
+
+  if (verbose) message("=== Extracting differential expression results ===")
+  results_list <- extract_de_results(dds_list, contrasts_info)
+
+  if (verbose) message("=== Converting results to tibble ===")
   master_results <- results_to_tibble(results_list, contrasts_info, tx2gene = tx2gene, level = level)
-  
-  if (verbose) cat("=== Calculating summary statistics ===\n")
+
+  if (verbose) message("=== Calculating summary statistics ===")
   summary_stats <- calculate_summary_stats(master_results, alpha = alpha, verbose = verbose)
-  
-  if (verbose) cat("=== ", toupper(level), "-level analysis complete ===\n", sep = "")
-  
-  return(list(
+
+  if (verbose) message("=== ", toupper(level), "-level analysis complete ===")
+
+  list(
     dds_list = dds_list,
     master_results = master_results,
     summary_stats = summary_stats,
@@ -494,20 +541,62 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
     contrasts_info = contrasts_info,
     results_list = results_list,
     level = level
-  ))
+  )
 }
 
 
 
 #' Complete DESeq2 pipeline from config to results
 #'
+#' End-to-end driver: reads the JSON config, loads the GTF, builds the
+#' transcript-to-gene mapping, imports Salmon quantifications via tximport,
+#' fits one full interaction model and four subset models, and returns
+#' shrunk LFC results for all five contrasts plus summary statistics.
+#'
+#' # Assumptions
+#'
+#' The pipeline is restricted to a **2x2 factorial design**: exactly two
+#' `treatment` levels and exactly two `source` levels (e.g. IP / Input).
+#' `extract_factor_levels()` errors out otherwise.
+#'
+#' # Config JSON schema
+#'
+#' The config file must parse to a list with these keys:
+#' \preformatted{
+#' {
+#'   "treatment": {
+#'     "WT": ["sample1", "sample2", "sample3", "sample4"],
+#'     "KO": ["sample5", "sample6", "sample7", "sample8"]
+#'   },
+#'   "source": {
+#'     "Input": ["sample1", "sample2", "sample5", "sample6"],
+#'     "IP":    ["sample3", "sample4", "sample7", "sample8"]
+#'   },
+#'   "treatment_comparison": ["KO", "WT"],
+#'   "source_comparison":    ["IP", "Input"]
+#' }
+#' }
+#' Both `*_comparison` vectors are `c(numerator, denominator)`, so the
+#' example above produces LFCs of log2(KO/WT) and log2(IP/Input). Every
+#' sample must appear in exactly one treatment and one source group.
+#'
+#' # Interaction LFC caveat
+#'
+#' Because the source-in-treatment and treatment-in-source contrasts come
+#' from subset models while the interaction comes from the full interaction
+#' model, the interaction LFC is **not** equal to the algebraic difference
+#' of the two corresponding subset LFCs. See [define_contrasts()] for the
+#' rationale.
+#'
 #' @param config_json_path Path to JSON configuration file
 #' @param gtf_path Path to GTF annotation file
 #' @param results_dir Directory that directly contains sample subfolders
+#'   (one per `sample_name`, each holding a `quant.sf` file)
 #' @param level Analysis level: "transcript", "gene", or "both" (default: "transcript")
-#' @param design Design formula for DESeq2
-#' @param alpha Significance threshold
-#' @param verbose Print progress messages
+#' @param design Design formula for the full interaction model
+#'   (default: `~ source + treatment + source:treatment`)
+#' @param alpha Significance threshold for the summary statistics (default: 0.05)
+#' @param verbose Print progress messages (default: TRUE)
 #' @return If level="both": list with "transcript" and "gene" elements, each containing analysis results.
 #'         Otherwise: list containing dds_list (named list of DESeqDataSet objects:
 #'         "full" for interaction model, "subset_*" for per-group models),
@@ -526,50 +615,47 @@ run_deseq2_pipeline <- function(config_json_path,
     stop("level must be 'transcript', 'gene', or 'both'")
   }
   
-  if (verbose) cat("=== Loading configuration ===\n")
+  if (verbose) message("=== Loading configuration ===")
   dat_settings <- jsonlite::read_json(config_json_path)
-  
-  if (verbose) cat("=== Creating column data ===\n")
+
+  if (verbose) message("=== Creating column data ===")
   col_data <- get_coldata(dat_settings) %>%
     add_filepaths(results_dir = results_dir)
-  
-  if (verbose) cat("=== Loading GTF annotation ===\n")
+
+  if (verbose) message("=== Loading GTF annotation ===")
   gtf <- load_gtf(gtf_path)
-  
-  if (verbose) cat("=== Creating transcript-to-gene mapping ===\n")
+
+  if (verbose) message("=== Creating transcript-to-gene mapping ===")
   tx2gene <- create_tx2gene(gtf, verbose = verbose)
-  
-  if (verbose) cat("=== Extracting factor levels ===\n")
+
+  if (verbose) message("=== Extracting factor levels ===")
   factor_levels <- extract_factor_levels(col_data, print_table = verbose)
-  
-  if (verbose) cat("=== Defining contrasts ===\n")
+
+  if (verbose) message("=== Defining contrasts ===")
   contrasts_info <- define_contrasts(factor_levels, verbose = verbose)
-  
-  # Run analysis for specified level(s)
+
   if (level == "both") {
-    # Run both transcript and gene level analyses
-    if (verbose) cat("\n=== TRANSCRIPT-LEVEL ANALYSIS ===\n")
+    if (verbose) message("\n=== TRANSCRIPT-LEVEL ANALYSIS ===")
     results_tx <- .run_single_level_analysis(
-      col_data, tx2gene, "transcript", 
+      col_data, tx2gene, "transcript",
       contrasts_info, design, alpha, verbose
     )
-    
-    if (verbose) cat("\n=== GENE-LEVEL ANALYSIS ===\n")
+
+    if (verbose) message("\n=== GENE-LEVEL ANALYSIS ===")
     results_gene <- .run_single_level_analysis(
-      col_data, tx2gene, "gene", 
+      col_data, tx2gene, "gene",
       contrasts_info, design, alpha, verbose
     )
-    
-    return(list(
+
+    list(
       transcript = results_tx,
       gene = results_gene
-    ))
+    )
   } else {
-    # Run single level analysis
-    return(.run_single_level_analysis(
+    .run_single_level_analysis(
       col_data, tx2gene, level,
       contrasts_info, design, alpha, verbose
-    ))
+    )
   }
 }
 
@@ -601,16 +687,23 @@ plot_treatment_dispersions <- function(dds, output_dir = NULL) {
   }
   
   for (trt in treatments) {
-    cat(paste0("Generating dispersion plot for treatment: ", trt, "\n"))
-    
     # Subset dds for the current treatment
     dds_sub <- dds[, dds$treatment == trt]
-    
-    # Drop unused levels
     dds_sub$treatment <- droplevels(dds_sub$treatment)
     dds_sub$source <- droplevels(dds_sub$source)
-    
-    # Update design to account for source only (treatment is constant)
+
+    # The ~source design needs at least two source levels and at least two
+    # samples per level to estimate dispersion. Skip otherwise with a warning.
+    src_counts <- table(dds_sub$source)
+    if (length(src_counts) < 2 || any(src_counts < 2)) {
+      warning("Skipping treatment '", trt,
+              "': needs >=2 source levels with >=2 samples each (got ",
+              paste0(names(src_counts), "=", src_counts, collapse = ", "), ")")
+      next
+    }
+
+    message("Generating dispersion plot for treatment: ", trt)
+
     DESeq2::design(dds_sub) <- ~ source
     
     # Re-run DESeq2 (estimates dispersions for the subset)

@@ -19,15 +19,17 @@ run_deseq2_pipeline(
 
 \item{gtf_path}{Path to GTF annotation file}
 
-\item{results_dir}{Directory that directly contains sample subfolders}
+\item{results_dir}{Directory that directly contains sample subfolders
+(one per \code{sample_name}, each holding a \code{quant.sf} file)}
 
 \item{level}{Analysis level: "transcript", "gene", or "both" (default: "transcript")}
 
-\item{design}{Design formula for DESeq2}
+\item{design}{Design formula for the full interaction model
+(default: \code{~ source + treatment + source:treatment})}
 
-\item{alpha}{Significance threshold}
+\item{alpha}{Significance threshold for the summary statistics (default: 0.05)}
 
-\item{verbose}{Print progress messages}
+\item{verbose}{Print progress messages (default: TRUE)}
 }
 \value{
 If level="both": list with "transcript" and "gene" elements, each containing analysis results.
@@ -36,5 +38,43 @@ Otherwise: list containing dds_list (named list of DESeqDataSet objects:
 master_results, summary_stats, and other objects
 }
 \description{
-Complete DESeq2 pipeline from config to results
+End-to-end driver: reads the JSON config, loads the GTF, builds the
+transcript-to-gene mapping, imports Salmon quantifications via tximport,
+fits one full interaction model and four subset models, and returns
+shrunk LFC results for all five contrasts plus summary statistics.
 }
+\section{Assumptions}{
+The pipeline is restricted to a \strong{2x2 factorial design}: exactly two
+\code{treatment} levels and exactly two \code{source} levels (e.g. IP / Input).
+\code{extract_factor_levels()} errors out otherwise.
+}
+
+\section{Config JSON schema}{
+The config file must parse to a list with these keys:
+\preformatted{
+{
+  "treatment": {
+    "WT": ["sample1", "sample2", "sample3", "sample4"],
+    "KO": ["sample5", "sample6", "sample7", "sample8"]
+  },
+  "source": {
+    "Input": ["sample1", "sample2", "sample5", "sample6"],
+    "IP":    ["sample3", "sample4", "sample7", "sample8"]
+  },
+  "treatment_comparison": ["KO", "WT"],
+  "source_comparison":    ["IP", "Input"]
+}
+}
+Both \verb{*_comparison} vectors are \code{c(numerator, denominator)}, so the
+example above produces LFCs of log2(KO/WT) and log2(IP/Input). Every
+sample must appear in exactly one treatment and one source group.
+}
+
+\section{Interaction LFC caveat}{
+Because the source-in-treatment and treatment-in-source contrasts come
+from subset models while the interaction comes from the full interaction
+model, the interaction LFC is \strong{not} equal to the algebraic difference
+of the two corresponding subset LFCs. See \code{\link[=define_contrasts]{define_contrasts()}} for the
+rationale.
+}
+

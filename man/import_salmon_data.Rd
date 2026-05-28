@@ -8,7 +8,7 @@ import_salmon_data(
   col_data,
   tx2gene,
   level = "transcript",
-  counts_from_abundance = "scaledTPM"
+  counts_from_abundance = "no"
 )
 }
 \arguments{
@@ -18,7 +18,9 @@ import_salmon_data(
 
 \item{level}{Quantification level: "transcript" or "gene" (default: "transcript")}
 
-\item{counts_from_abundance}{Abundance scaling method (default: "scaledTPM")}
+\item{counts_from_abundance}{Abundance scaling method (default: "no").
+DESeq2 accounts for transcript length via the offset matrix that tximport
+provides, so scaling counts by abundance is unnecessary.}
 }
 \value{
 tximport object

@@ -2,7 +2,7 @@
 % Please edit documentation in R/functions.R
 \name{get_coldata}
 \alias{get_coldata}
-\title{DESeq2 RNA-seq Analysis Pipeline}
+\title{Get col_data for DESeq2 from JSON config}
 \usage{
 get_coldata(settings)
 }
@@ -13,11 +13,25 @@ get_coldata(settings)
 col_data tibble with treatment and source columns
 }
 \description{
-A complete pipeline for differential expression analysis using DESeq2
-with tximport for Salmon quantification data. Supports both transcript-level
-and gene-level analysis.
+Builds the sample-level metadata table from a parsed JSON config and
+relevels the \code{treatment} and \code{source} factors so that DESeq2 uses the
+intended reference (denominator) level.
 }
-\author{
-Bioinformatics Pipeline
-Get col_data for DESeq2 from JSON config
+\details{
+Expected \code{settings} structure:
+\itemize{
+\item \code{treatment}: named list mapping each treatment group to a vector of
+sample names (e.g. \code{list(WT = c("s1","s2"), KO = c("s3","s4"))}).
+\item \code{source}: named list mapping each source group (e.g. IP, Input) to a
+vector of sample names. Every sample must appear in exactly one
+treatment group \strong{and} exactly one source group.
+\item \code{treatment_comparison}: length-2 character vector
+\code{c(numerator, denominator)}, e.g. \code{c("KO", "WT")} to test KO vs WT.
+\item \code{source_comparison}: length-2 character vector \code{c(numerator, denominator)}.
+}
+
+Both \verb{*_comparison} vectors must list exactly the levels present in the
+corresponding group. The function fails fast if any required key is
+missing, references an unknown level, or if a sample is missing from
+either grouping.
 }

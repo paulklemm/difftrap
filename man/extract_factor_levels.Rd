@@ -15,5 +15,7 @@ extract_factor_levels(col_data, print_table = TRUE)
 Named list with treatment_a, treatment_b, source_a, source_b
 }
 \description{
-Extract factor levels from col_data
+Requires both \code{treatment} and \code{source} to have exactly two factor levels.
+The first level (reference, denominator in DESeq2) is returned as \verb{*_a}
+and the second (numerator) as \verb{*_b}.
 }
