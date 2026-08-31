@@ -9,6 +9,8 @@ create_deseq_dataset(
   col_data,
   level = "transcript",
   design = ~source + treatment + source:treatment,
+  min_count = 0,
+  min_samples = 0,
   verbose = TRUE
 )
 }
@@ -20,6 +22,15 @@ create_deseq_dataset(
 \item{level}{Quantification level used ("transcript" or "gene")}
 
 \item{design}{Design formula (default: ~ source + treatment + source:treatment)}
+
+\item{min_count}{Drop features without at least this many counts in
+\code{min_samples} samples. Default 0, which keeps every feature -- apeglm
+shrinks a noisy near-zero feature's LFC to 0 but leaves its Wald p-value
+untouched, so unfiltered results can carry "significant" features with a
+base mean near zero and no effect size.}
+
+\item{min_samples}{Number of samples that must meet \code{min_count}. Default 0,
+in which case the smallest group in \code{col_data} is used.}
 
 \item{verbose}{Print dimensions and size factors (default: TRUE)}
 }

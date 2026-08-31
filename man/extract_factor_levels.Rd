@@ -12,10 +12,16 @@ extract_factor_levels(col_data, print_table = TRUE)
 \item{print_table}{Print summary table (default: TRUE)}
 }
 \value{
-Named list with treatment_a, treatment_b, source_a, source_b
+Named list with treatment_levels, source_a, source_b, and -- for a
+two-level treatment -- treatment_a and treatment_b
 }
 \description{
-Requires both \code{treatment} and \code{source} to have exactly two factor levels.
-The first level (reference, denominator in DESeq2) is returned as \verb{*_a}
-and the second (numerator) as \verb{*_b}.
+\code{source} must have exactly two levels; \code{treatment} may have two or more.
+The first level of each is the reference (denominator in DESeq2).
+}
+\details{
+\code{treatment_levels} holds every treatment level, reference first.
+\code{treatment_a} and \code{treatment_b} are also returned when \code{treatment} has
+exactly two levels, so existing two-level callers keep working; with more
+than two they are ambiguous and are omitted.
 }

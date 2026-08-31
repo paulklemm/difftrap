@@ -10,6 +10,9 @@ run_deseq2_pipeline(
   results_dir = "/nfcore-rnaseq-pipeline/results_grcm38/star_salmon/",
   level = "transcript",
   design = ~source + treatment + source:treatment,
+  covariates = NULL,
+  min_count = 0,
+  min_samples = 0,
   alpha = 0.05,
   verbose = TRUE
 )

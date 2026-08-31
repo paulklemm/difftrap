@@ -72,10 +72,14 @@ get_coldata <- function(settings) {
   treatment_fct_levels <- rev(unlist(settings$treatment_comparison))
   source_fct_levels <- rev(unlist(settings$source_comparison))
 
-  validate_comparison <- function(values, observed, name) {
-    if (length(values) != 2) {
+  validate_comparison <- function(values, observed, name, fixed_length = TRUE) {
+    if (fixed_length && length(values) != 2) {
       stop(name, " must be a length-2 vector c(numerator, denominator); got length ",
            length(values))
+    }
+    if (!fixed_length && length(values) < 2) {
+      stop(name, " must list at least two levels, ordered so that the reference",
+           " comes last; got length ", length(values))
     }
     unknown <- setdiff(values, observed)
     if (length(unknown) > 0) {
@@ -89,7 +93,8 @@ get_coldata <- function(settings) {
            paste(extra, collapse = ", "))
     }
   }
-  validate_comparison(treatment_fct_levels, unique(col_data$treatment), "treatment_comparison")
+  validate_comparison(treatment_fct_levels, unique(col_data$treatment),
+                      "treatment_comparison", fixed_length = FALSE)
   validate_comparison(source_fct_levels, unique(col_data$source), "source_comparison")
 
   col_data %>%
@@ -207,39 +212,69 @@ import_salmon_data <- function(col_data, tx2gene,
 
 
 
+#' Design formula for a subset model
+#'
+#' A subset model holds one of the two factors fixed, so it drops that factor
+#' and keeps the other. Any covariates in the full design are kept, since a
+#' nuisance term that needs adjusting in the full model needs adjusting here
+#' too.
+#'
+#' @param design Full design formula.
+#' @param subset_variable Factor held fixed: "treatment" or "source".
+#' @return A one-sided formula.
+#' @keywords internal
+subset_design <- function(design, subset_variable) {
+  kept <- if (subset_variable == "treatment") "source" else "treatment"
+  covariates <- setdiff(all.vars(design), c("source", "treatment"))
+  stats::reformulate(c(covariates, kept))
+}
+
 #' Extract factor levels from col_data
 #'
-#' Requires both `treatment` and `source` to have exactly two factor levels.
-#' The first level (reference, denominator in DESeq2) is returned as `*_a`
-#' and the second (numerator) as `*_b`.
+#' `source` must have exactly two levels; `treatment` may have two or more.
+#' The first level of each is the reference (denominator in DESeq2).
+#'
+#' `treatment_levels` holds every treatment level, reference first.
+#' `treatment_a` and `treatment_b` are also returned when `treatment` has
+#' exactly two levels, so existing two-level callers keep working; with more
+#' than two they are ambiguous and are omitted.
 #'
 #' @param col_data Column data tibble with treatment and source factors
 #' @param print_table Print summary table (default: TRUE)
-#' @return Named list with treatment_a, treatment_b, source_a, source_b
+#' @return Named list with treatment_levels, source_a, source_b, and -- for a
+#'   two-level treatment -- treatment_a and treatment_b
 #' @export
 extract_factor_levels <- function(col_data, print_table = TRUE) {
   treatment_levels <- levels(col_data$treatment)
   source_levels <- levels(col_data$source)
 
-  if (length(treatment_levels) != 2 || length(source_levels) != 2) {
-    stop("Need exactly 2 levels for both treatment and source (got ",
-         length(treatment_levels), " and ", length(source_levels), ")")
+  if (length(source_levels) != 2) {
+    stop("Need exactly 2 levels for source (got ", length(source_levels), ")")
+  }
+  if (length(treatment_levels) < 2) {
+    stop("Need at least 2 levels for treatment (got ",
+         length(treatment_levels), ")")
   }
 
   factor_levels <- list(
-    treatment_a = treatment_levels[1],
-    treatment_b = treatment_levels[2],
+    treatment_levels = treatment_levels,
     source_a = source_levels[1],
     source_b = source_levels[2]
   )
+  if (length(treatment_levels) == 2) {
+    factor_levels$treatment_a <- treatment_levels[1]
+    factor_levels$treatment_b <- treatment_levels[2]
+  }
 
   if (print_table) {
     summary_table <- tibble::tibble(
-      condition = c("a", "b"),
-      treatment = c(factor_levels$treatment_a, factor_levels$treatment_b),
-      source = c(factor_levels$source_a, factor_levels$source_b)
+      treatment = treatment_levels,
+      role = c("reference", rep("compared to reference",
+                                length(treatment_levels) - 1))
     )
     print(summary_table)
+    print(tibble::tibble(source = source_levels,
+                         role = c("reference", "compared to reference")))
   }
 
   factor_levels
@@ -253,18 +288,41 @@ extract_factor_levels <- function(col_data, print_table = TRUE) {
 #' @param col_data Column data for samples
 #' @param level Quantification level used ("transcript" or "gene")
 #' @param design Design formula (default: ~ source + treatment + source:treatment)
+#' @param min_count Drop features without at least this many counts in
+#'   `min_samples` samples. Default 0, which keeps every feature -- apeglm
+#'   shrinks a noisy near-zero feature's LFC to 0 but leaves its Wald p-value
+#'   untouched, so unfiltered results can carry "significant" features with a
+#'   base mean near zero and no effect size.
+#' @param min_samples Number of samples that must meet `min_count`. Default 0,
+#'   in which case the smallest group in `col_data` is used.
 #' @param verbose Print dimensions and size factors (default: TRUE)
 #' @return DESeqDataSet object after running DESeq()
 #' @export
 create_deseq_dataset <- function(txi, col_data, 
                                  level = "transcript",
                                  design = ~ source + treatment + source:treatment,
+                                 min_count = 0,
+                                 min_samples = 0,
                                  verbose = TRUE) {
   dds <- DESeq2::DESeqDataSetFromTximport(
     txi,
     colData = col_data,
     design = design
   )
+
+  if (min_count > 0) {
+    if (min_samples <= 0) {
+      min_samples <- min(table(interaction(col_data$source, col_data$treatment,
+                                           drop = TRUE)))
+    }
+    keep <- rowSums(DESeq2::counts(dds) >= min_count) >= min_samples
+    if (verbose) {
+      message("Filtering: keeping ", sum(keep), " of ", length(keep),
+              " features with >= ", min_count, " counts in >= ", min_samples,
+              " samples")
+    }
+    dds <- dds[keep, ]
+  }
 
   if (verbose) {
     feature_type <- if (level == "transcript") "transcripts" else "genes"
@@ -293,66 +351,97 @@ create_deseq_dataset <- function(txi, col_data,
 #' Define contrasts for differential expression analysis
 #'
 #' Defines contrasts using separate models for non-interaction effects and
-#' the full interaction model only for the interaction term. Non-interaction
+#' the full interaction model only for the interaction terms. Non-interaction
 #' contrasts (source effects within a treatment, treatment effects within a
 #' source) use subset models that only include the relevant samples.
 #' This avoids distorted dispersion estimates when the IP/Input difference is
 #' large, and allows apeglm shrinkage for all contrasts.
 #'
-#' Assumes a 2x2 factorial design (exactly two levels for `treatment` and
-#' two for `source`).
+#' `source` must have exactly two levels. `treatment` may have more, in which
+#' case every non-reference level gets its own treatment-effect contrast within
+#' each source level, and its own interaction term. For k treatment levels that
+#' is k source-effects + 2(k-1) treatment-effects + (k-1) interactions; at
+#' k = 2 this is the original five contrasts, unchanged.
 #'
-#' Note: because the four "effect-within-group" contrasts come from subset
-#' models (per-subset dispersions and per-subset tximport offsets) while the
-#' interaction contrast comes from the full model (pooled dispersions), the
+#' With a single interaction the effect is named `interaction_effect`, as
+#' before. With more than one they are named `interaction_effect_<level>`,
+#' since one name can no longer identify them.
+#'
+#' Note: because the effect-within-group contrasts come from subset models
+#' (per-subset dispersions and per-subset tximport offsets) while the
+#' interaction contrasts come from the full model (pooled dispersions), an
 #' interaction LFC is **not** equal to the algebraic difference of the two
-#' source-in-treatment (or treatment-in-source) LFCs. Treat the interaction
+#' source-in-treatment (or treatment-in-source) LFCs. Treat each interaction
 #' as its own estimate from the full model rather than as a derived
 #' difference.
 #'
-#' @param factor_levels List with treatment_a, treatment_b, source_a, source_b
+#' @param factor_levels List from [extract_factor_levels()], with
+#'   treatment_levels, source_a and source_b
 #' @param verbose Print contrast info (default: TRUE)
 #' @return Tibble with contrast definitions including model_type, model_id,
 #'   subset_variable, and subset_level columns
 #' @export
 define_contrasts <- function(factor_levels, verbose = TRUE) {
-  treatment_a <- factor_levels$treatment_a
-  treatment_b <- factor_levels$treatment_b
+  treatment_levels <- factor_levels$treatment_levels
+  treatment_ref <- treatment_levels[1]
+  treatment_rest <- treatment_levels[-1]
   source_a <- factor_levels$source_a
   source_b <- factor_levels$source_b
-  
-  # Construct dynamic coefficient names
-  # DESeq2 creates coefficients as "level_b_vs_a" where a is reference (first level)
-  # So the actual comparison in the results is b vs a (numerator vs denominator)
-  # We use make.names() because DESeq2/model.matrix replaces spaces/chars with dots
-  source_coef_name <- paste0("source_", make.names(source_b), "_vs_", make.names(source_a))
-  treatment_coef_name <- paste0("treatment_", make.names(treatment_b), "_vs_", make.names(treatment_a))
-  interaction_coef_name <- paste0("source", make.names(source_b), ".treatment", make.names(treatment_b))
-  
-  # Construct comparison names - Match actual DESeq2 output direction
-  # The results are b vs a (log2(b/a)), so we should label them b_vs_a
+
+  # DESeq2 creates coefficients as "level_b_vs_a" where a is the reference. We
+  # use make.names() because DESeq2/model.matrix replaces spaces/chars with dots.
+  source_coef_name <- paste0("source_", make.names(source_b), "_vs_",
+                             make.names(source_a))
   source_coef_print <- paste0(source_b, "_vs_", source_a)
-  treatment_coef_print <- paste0(treatment_b, "_vs_", treatment_a)
-  
-  # Model IDs for subset models
-  subset_treatment_a_id <- paste0("subset_treatment_", make.names(treatment_a))
-  subset_treatment_b_id <- paste0("subset_treatment_", make.names(treatment_b))
-  subset_source_a_id <- paste0("subset_source_", make.names(source_a))
-  subset_source_b_id <- paste0("subset_source_", make.names(source_b))
-  
-  # Define contrasts with model type information
-  # Non-interaction contrasts use separate subset models for better dispersion
-  # estimation when the IP/Input difference is large.
-  # All contrasts use single coefficients, enabling apeglm shrinkage.
-  contrasts_info <- tibble::tribble(
-    ~effect_name, ~description, ~coef, ~shrinkage_method, ~model_type, ~model_id, ~subset_variable, ~subset_level,
-    paste0(source_coef_print, "_in_", treatment_a), paste("Source effect in", treatment_a), source_coef_name, "apeglm", "subset", subset_treatment_a_id, "treatment", treatment_a,
-    paste0(source_coef_print, "_in_", treatment_b), paste("Source effect in", treatment_b), source_coef_name, "apeglm", "subset", subset_treatment_b_id, "treatment", treatment_b,
-    paste0(treatment_coef_print, "_in_", source_a), paste("Treatment effect in", source_a), treatment_coef_name, "apeglm", "subset", subset_source_a_id, "source", source_a,
-    paste0(treatment_coef_print, "_in_", source_b), paste("Treatment effect in", source_b), treatment_coef_name, "apeglm", "subset", subset_source_b_id, "source", source_b,
-    "interaction_effect", "Interaction term", interaction_coef_name, "apeglm", "full", "full", NA_character_, NA_character_
+
+  # Source effect within each treatment level: one subset model per level,
+  # each fitted as ~ source.
+  source_effects <- tibble::tibble(
+    effect_name = paste0(source_coef_print, "_in_", treatment_levels),
+    description = paste("Source effect in", treatment_levels),
+    coef = source_coef_name,
+    shrinkage_method = "apeglm",
+    model_type = "subset",
+    model_id = paste0("subset_treatment_", make.names(treatment_levels)),
+    subset_variable = "treatment",
+    subset_level = treatment_levels
   )
-  
+
+  # Treatment effects within each source level. Both source subset models are
+  # fitted as ~ treatment, so with k > 2 one model carries several coefficients.
+  treatment_effects <- purrr::map_dfr(c(source_a, source_b), function(sl) {
+    tibble::tibble(
+      effect_name = paste0(treatment_rest, "_vs_", treatment_ref, "_in_", sl),
+      description = paste0("Treatment effect (", treatment_rest, ") in ", sl),
+      coef = paste0("treatment_", make.names(treatment_rest), "_vs_",
+                    make.names(treatment_ref)),
+      shrinkage_method = "apeglm",
+      model_type = "subset",
+      model_id = paste0("subset_source_", make.names(sl)),
+      subset_variable = "source",
+      subset_level = sl
+    )
+  })
+
+  interactions <- tibble::tibble(
+    effect_name = if (length(treatment_rest) == 1) {
+      "interaction_effect"
+    } else {
+      paste0("interaction_effect_", treatment_rest)
+    },
+    description = paste0("Interaction term (", treatment_rest, ")"),
+    coef = paste0("source", make.names(source_b), ".treatment",
+                  make.names(treatment_rest)),
+    shrinkage_method = "apeglm",
+    model_type = "full",
+    model_id = "full",
+    subset_variable = NA_character_,
+    subset_level = NA_character_
+  )
+
+  contrasts_info <- dplyr::bind_rows(source_effects, treatment_effects,
+                                     interactions)
+
   if (verbose) {
     print(contrasts_info %>% dplyr::select(effect_name, description, model_type, model_id, shrinkage_method))
   }
@@ -475,7 +564,8 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
 #'
 #' @keywords internal
 .run_single_level_analysis <- function(col_data, tx2gene, level,
-                                       contrasts_info, design, alpha, verbose) {
+                                       contrasts_info, design, alpha, verbose,
+                                       min_count = 0, min_samples = 0) {
   if (verbose) message("=== Importing Salmon data (", level, "-level) ===")
   txi <- import_salmon_data(col_data, tx2gene, level = level)
 
@@ -486,7 +576,8 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
   if (nrow(full_contrasts) > 0) {
     if (verbose) message("=== Creating full DESeq2 dataset (interaction model, all samples) ===")
     dds_list[["full"]] <- create_deseq_dataset(
-      txi, col_data, level = level, design = design, verbose = verbose
+      txi, col_data, level = level, design = design,
+      min_count = min_count, min_samples = min_samples, verbose = verbose
     )
   }
 
@@ -511,10 +602,11 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
 
       txi_sub <- import_salmon_data(col_data_sub, tx2gene, level = level)
 
-      sub_design <- if (sub_var == "treatment") ~ source else ~ treatment
+      sub_design <- subset_design(design, sub_var)
 
       dds_list[[mid]] <- create_deseq_dataset(
-        txi_sub, col_data_sub, level = level, design = sub_design, verbose = verbose
+        txi_sub, col_data_sub, level = level, design = sub_design,
+        min_count = min_count, min_samples = min_samples, verbose = verbose
       )
     }
   }
@@ -607,6 +699,9 @@ run_deseq2_pipeline <- function(config_json_path,
                                 results_dir = "/nfcore-rnaseq-pipeline/results_grcm38/star_salmon/",
                                 level = "transcript",
                                 design = ~ source + treatment + source:treatment,
+                                covariates = NULL,
+                                min_count = 0,
+                                min_samples = 0,
                                 alpha = 0.05,
                                 verbose = TRUE) {
   
@@ -621,6 +716,24 @@ run_deseq2_pipeline <- function(config_json_path,
   if (verbose) message("=== Creating column data ===")
   col_data <- get_coldata(dat_settings) %>%
     add_filepaths(results_dir = results_dir)
+
+  if (!is.null(covariates)) {
+    if (!"sample_name" %in% names(covariates)) {
+      stop("covariates must have a 'sample_name' column")
+    }
+    missing <- setdiff(col_data$sample_name, covariates$sample_name)
+    if (length(missing) > 0) {
+      stop("covariates is missing ", length(missing), " sample(s): ",
+           paste(utils::head(missing, 5), collapse = ", "))
+    }
+    col_data <- dplyr::left_join(col_data, covariates, by = "sample_name")
+  }
+  needed <- setdiff(all.vars(design), names(col_data))
+  if (length(needed) > 0) {
+    stop("design references column(s) not in col_data: ",
+         paste(needed, collapse = ", "),
+         "\n  Pass them via the `covariates` argument.")
+  }
 
   if (verbose) message("=== Loading GTF annotation ===")
   gtf <- load_gtf(gtf_path)
@@ -638,13 +751,13 @@ run_deseq2_pipeline <- function(config_json_path,
     if (verbose) message("\n=== TRANSCRIPT-LEVEL ANALYSIS ===")
     results_tx <- .run_single_level_analysis(
       col_data, tx2gene, "transcript",
-      contrasts_info, design, alpha, verbose
+      contrasts_info, design, alpha, verbose, min_count, min_samples
     )
 
     if (verbose) message("\n=== GENE-LEVEL ANALYSIS ===")
     results_gene <- .run_single_level_analysis(
       col_data, tx2gene, "gene",
-      contrasts_info, design, alpha, verbose
+      contrasts_info, design, alpha, verbose, min_count, min_samples
     )
 
     list(
@@ -654,7 +767,7 @@ run_deseq2_pipeline <- function(config_json_path,
   } else {
     .run_single_level_analysis(
       col_data, tx2gene, level,
-      contrasts_info, design, alpha, verbose
+      contrasts_info, design, alpha, verbose, min_count, min_samples
     )
   }
 }

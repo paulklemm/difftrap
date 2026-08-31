@@ -11,7 +11,9 @@
   contrasts_info,
   design,
   alpha,
-  verbose
+  verbose,
+  min_count = 0,
+  min_samples = 0
 )
 }
 \description{

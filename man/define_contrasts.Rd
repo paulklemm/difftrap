@@ -7,7 +7,8 @@
 define_contrasts(factor_levels, verbose = TRUE)
 }
 \arguments{
-\item{factor_levels}{List with treatment_a, treatment_b, source_a, source_b}
+\item{factor_levels}{List from \code{\link[=extract_factor_levels]{extract_factor_levels()}}, with
+treatment_levels, source_a and source_b}
 
 \item{verbose}{Print contrast info (default: TRUE)}
 }
@@ -17,21 +18,28 @@ subset_variable, and subset_level columns
 }
 \description{
 Defines contrasts using separate models for non-interaction effects and
-the full interaction model only for the interaction term. Non-interaction
+the full interaction model only for the interaction terms. Non-interaction
 contrasts (source effects within a treatment, treatment effects within a
 source) use subset models that only include the relevant samples.
 This avoids distorted dispersion estimates when the IP/Input difference is
 large, and allows apeglm shrinkage for all contrasts.
 }
 \details{
-Assumes a 2x2 factorial design (exactly two levels for \code{treatment} and
-two for \code{source}).
+\code{source} must have exactly two levels. \code{treatment} may have more, in which
+case every non-reference level gets its own treatment-effect contrast within
+each source level, and its own interaction term. For k treatment levels that
+is k source-effects + 2(k-1) treatment-effects + (k-1) interactions; at
+k = 2 this is the original five contrasts, unchanged.
 
-Note: because the four "effect-within-group" contrasts come from subset
-models (per-subset dispersions and per-subset tximport offsets) while the
-interaction contrast comes from the full model (pooled dispersions), the
+With a single interaction the effect is named \code{interaction_effect}, as
+before. With more than one they are named \verb{interaction_effect_<level>},
+since one name can no longer identify them.
+
+Note: because the effect-within-group contrasts come from subset models
+(per-subset dispersions and per-subset tximport offsets) while the
+interaction contrasts come from the full model (pooled dispersions), an
 interaction LFC is \strong{not} equal to the algebraic difference of the two
-source-in-treatment (or treatment-in-source) LFCs. Treat the interaction
+source-in-treatment (or treatment-in-source) LFCs. Treat each interaction
 as its own estimate from the full model rather than as a derived
 difference.
 }
