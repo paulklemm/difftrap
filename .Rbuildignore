@@ -7,3 +7,4 @@
 ^codecov\.yml$
 ^\.tmp-projections$
 ^CLAUDE\.md$
+^\.nodeterm$

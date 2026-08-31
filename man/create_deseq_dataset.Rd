@@ -29,8 +29,11 @@ shrinks a noisy near-zero feature's LFC to 0 but leaves its Wald p-value
 untouched, so unfiltered results can carry "significant" features with a
 base mean near zero and no effect size.}
 
-\item{min_samples}{Number of samples that must meet \code{min_count}. Default 0,
-in which case the smallest group in \code{col_data} is used.}
+\item{min_samples}{Number of samples that must meet \code{min_count}. Only used
+when \code{min_count > 0}. Default 0, in which case the smallest cell over the
+design's factor columns is used. An explicit value larger than the number
+of samples is capped at the sample count, since subset models see fewer
+samples than the full dataset.}
 
 \item{verbose}{Print dimensions and size factors (default: TRUE)}
 }

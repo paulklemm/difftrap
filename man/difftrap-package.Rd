@@ -11,5 +11,10 @@ A DESeq2-based pipeline for differential expression analysis of TRAP (Translatin
 \author{
 \strong{Maintainer}: Paul Klemm \email{paul.klemm@sf.mpg.de} (\href{https://orcid.org/0000-0002-5985-1737}{ORCID})
 
+Authors:
+\itemize{
+  \item Paul Klemm \email{paul.klemm@sf.mpg.de} (\href{https://orcid.org/0000-0002-5985-1737}{ORCID})
+}
+
 }
 \keyword{internal}

@@ -10,8 +10,9 @@
 #' * `source`: named list mapping each source group (e.g. IP, Input) to a
 #'   vector of sample names. Every sample must appear in exactly one
 #'   treatment group **and** exactly one source group.
-#' * `treatment_comparison`: length-2 character vector
-#'   `c(numerator, denominator)`, e.g. `c("KO", "WT")` to test KO vs WT.
+#' * `treatment_comparison`: character vector listing every treatment level,
+#'   ordered so that the reference (denominator) comes last, e.g.
+#'   `c("KO", "WT")` to test KO vs WT.
 #' * `source_comparison`: length-2 character vector `c(numerator, denominator)`.
 #'
 #' Both `*_comparison` vectors must list exactly the levels present in the
@@ -214,19 +215,22 @@ import_salmon_data <- function(col_data, tx2gene,
 
 #' Design formula for a subset model
 #'
-#' A subset model holds one of the two factors fixed, so it drops that factor
-#' and keeps the other. Any covariates in the full design are kept, since a
-#' nuisance term that needs adjusting in the full model needs adjusting here
-#' too.
+#' A subset model holds one of the two factors fixed, so every term involving
+#' that factor is dropped (its main effect and the interaction). All other
+#' terms are kept verbatim -- including transformed covariates like
+#' `log(weight)` -- since a nuisance term that needs adjusting in the full
+#' model needs adjusting here too.
 #'
 #' @param design Full design formula.
 #' @param subset_variable Factor held fixed: "treatment" or "source".
 #' @return A one-sided formula.
 #' @keywords internal
 subset_design <- function(design, subset_variable) {
-  kept <- if (subset_variable == "treatment") "source" else "treatment"
-  covariates <- setdiff(all.vars(design), c("source", "treatment"))
-  stats::reformulate(c(covariates, kept))
+  labels <- attr(stats::terms(design), "term.labels")
+  drop <- vapply(labels, function(lbl) {
+    subset_variable %in% all.vars(str2lang(lbl))
+  }, logical(1))
+  stats::reformulate(labels[!drop])
 }
 
 #' Extract factor levels from col_data
@@ -293,8 +297,11 @@ extract_factor_levels <- function(col_data, print_table = TRUE) {
 #'   shrinks a noisy near-zero feature's LFC to 0 but leaves its Wald p-value
 #'   untouched, so unfiltered results can carry "significant" features with a
 #'   base mean near zero and no effect size.
-#' @param min_samples Number of samples that must meet `min_count`. Default 0,
-#'   in which case the smallest group in `col_data` is used.
+#' @param min_samples Number of samples that must meet `min_count`. Only used
+#'   when `min_count > 0`. Default 0, in which case the smallest cell over the
+#'   design's factor columns is used. An explicit value larger than the number
+#'   of samples is capped at the sample count, since subset models see fewer
+#'   samples than the full dataset.
 #' @param verbose Print dimensions and size factors (default: TRUE)
 #' @return DESeqDataSet object after running DESeq()
 #' @export
@@ -310,10 +317,29 @@ create_deseq_dataset <- function(txi, col_data,
     design = design
   )
 
+  if (min_samples > 0 && min_count == 0) {
+    stop("min_samples has no effect while min_count is 0; set min_count > 0")
+  }
+
   if (min_count > 0) {
     if (min_samples <= 0) {
-      min_samples <- min(table(interaction(col_data$source, col_data$treatment,
+      design_factors <- intersect(all.vars(design), names(col_data))
+      design_factors <- design_factors[vapply(col_data[design_factors],
+                                              is.factor, logical(1))]
+      if (length(design_factors) == 0) {
+        stop("Cannot derive the min_samples default: the design has no ",
+             "factor columns in col_data. Pass min_samples explicitly.")
+      }
+      min_samples <- min(table(interaction(col_data[design_factors],
                                            drop = TRUE)))
+    } else if (min_samples > nrow(col_data)) {
+      # A subset model sees fewer samples than the full dataset the caller
+      # calibrated min_samples for; an uncapped value can drop every feature.
+      if (verbose) {
+        message("Capping min_samples at the ", nrow(col_data),
+                " samples of this dataset (was ", min_samples, ")")
+      }
+      min_samples <- nrow(col_data)
     }
     keep <- rowSums(DESeq2::counts(dds) >= min_count) >= min_samples
     if (verbose) {
@@ -382,16 +408,21 @@ create_deseq_dataset <- function(txi, col_data,
 #'   subset_variable, and subset_level columns
 #' @export
 define_contrasts <- function(factor_levels, verbose = TRUE) {
+  if (is.null(factor_levels$treatment_levels)) {
+    stop("factor_levels must contain 'treatment_levels'; ",
+         "build it with extract_factor_levels()")
+  }
   treatment_levels <- factor_levels$treatment_levels
   treatment_ref <- treatment_levels[1]
   treatment_rest <- treatment_levels[-1]
   source_a <- factor_levels$source_a
   source_b <- factor_levels$source_b
 
-  # DESeq2 creates coefficients as "level_b_vs_a" where a is the reference. We
-  # use make.names() because DESeq2/model.matrix replaces spaces/chars with dots.
-  source_coef_name <- paste0("source_", make.names(source_b), "_vs_",
-                             make.names(source_a))
+  # DESeq2 creates coefficients as "level_b_vs_a" where a is the reference,
+  # applying make.names() to the *assembled* name -- so we must do the same.
+  # make.names() on a bare level diverges: it turns "6h" into "X6h", while
+  # DESeq2 leaves "treatment_6h_vs_ctrl" unchanged.
+  source_coef_name <- make.names(paste0("source_", source_b, "_vs_", source_a))
   source_coef_print <- paste0(source_b, "_vs_", source_a)
 
   # Source effect within each treatment level: one subset model per level,
@@ -413,8 +444,8 @@ define_contrasts <- function(factor_levels, verbose = TRUE) {
     tibble::tibble(
       effect_name = paste0(treatment_rest, "_vs_", treatment_ref, "_in_", sl),
       description = paste0("Treatment effect (", treatment_rest, ") in ", sl),
-      coef = paste0("treatment_", make.names(treatment_rest), "_vs_",
-                    make.names(treatment_ref)),
+      coef = make.names(paste0("treatment_", treatment_rest, "_vs_",
+                               treatment_ref)),
       shrinkage_method = "apeglm",
       model_type = "subset",
       model_id = paste0("subset_source_", make.names(sl)),
@@ -430,8 +461,9 @@ define_contrasts <- function(factor_levels, verbose = TRUE) {
       paste0("interaction_effect_", treatment_rest)
     },
     description = paste0("Interaction term (", treatment_rest, ")"),
-    coef = paste0("source", make.names(source_b), ".treatment",
-                  make.names(treatment_rest)),
+    # The interaction coefficient keeps its model-matrix name, run through
+    # make.names() as a whole: "sourceIP:treatment6h" -> "sourceIP.treatment6h".
+    coef = make.names(paste0("source", source_b, ":treatment", treatment_rest)),
     shrinkage_method = "apeglm",
     model_type = "full",
     model_id = "full",
@@ -642,14 +674,15 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
 #'
 #' End-to-end driver: reads the JSON config, loads the GTF, builds the
 #' transcript-to-gene mapping, imports Salmon quantifications via tximport,
-#' fits one full interaction model and four subset models, and returns
-#' shrunk LFC results for all five contrasts plus summary statistics.
+#' fits one full interaction model plus per-group subset models, and returns
+#' shrunk LFC results for every contrast plus summary statistics.
 #'
 #' # Assumptions
 #'
-#' The pipeline is restricted to a **2x2 factorial design**: exactly two
-#' `treatment` levels and exactly two `source` levels (e.g. IP / Input).
-#' `extract_factor_levels()` errors out otherwise.
+#' The design crosses a **two-level** `source` factor (e.g. IP / Input) with
+#' a `treatment` factor of **two or more** levels; `extract_factor_levels()`
+#' errors out otherwise. See [define_contrasts()] for the contrasts emitted
+#' per treatment level.
 #'
 #' # Config JSON schema
 #'
@@ -668,9 +701,11 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
 #'   "source_comparison":    ["IP", "Input"]
 #' }
 #' }
-#' Both `*_comparison` vectors are `c(numerator, denominator)`, so the
-#' example above produces LFCs of log2(KO/WT) and log2(IP/Input). Every
-#' sample must appear in exactly one treatment and one source group.
+#' `source_comparison` is `c(numerator, denominator)`; `treatment_comparison`
+#' lists every treatment level, ordered so that the reference (denominator)
+#' comes last. The example above produces LFCs of log2(KO/WT) and
+#' log2(IP/Input). Every sample must appear in exactly one treatment and one
+#' source group.
 #'
 #' # Interaction LFC caveat
 #'
@@ -686,7 +721,16 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
 #'   (one per `sample_name`, each holding a `quant.sf` file)
 #' @param level Analysis level: "transcript", "gene", or "both" (default: "transcript")
 #' @param design Design formula for the full interaction model
-#'   (default: `~ source + treatment + source:treatment`)
+#'   (default: `~ source + treatment + source:treatment`). Must contain
+#'   `source`, `treatment`, and their interaction; additional covariate terms
+#'   are carried into the subset models.
+#' @param covariates Optional tibble of per-sample covariates, joined onto the
+#'   sample table by its `sample_name` column. Must cover every sample exactly
+#'   once and may not repeat an existing column. Any design variable other
+#'   than `source` and `treatment` must come from here.
+#' @param min_count,min_samples Low-count filter, passed to
+#'   [create_deseq_dataset()]: keep features with at least `min_count` counts
+#'   in at least `min_samples` samples. The defaults keep every feature.
 #' @param alpha Significance threshold for the summary statistics (default: 0.05)
 #' @param verbose Print progress messages (default: TRUE)
 #' @return If level="both": list with "transcript" and "gene" elements, each containing analysis results.
@@ -709,7 +753,19 @@ run_deseq2_pipeline <- function(config_json_path,
   if (!level %in% c("transcript", "gene", "both")) {
     stop("level must be 'transcript', 'gene', or 'both'")
   }
-  
+
+  # The contrast machinery requires the factorial terms; a design without them
+  # would fit fine and only fail hours later in lfcShrink.
+  design_terms <- attr(stats::terms(design), "term.labels")
+  has_interaction <- any(vapply(design_terms, function(lbl) {
+    setequal(all.vars(str2lang(lbl)), c("source", "treatment"))
+  }, logical(1)))
+  if (!all(c("source", "treatment") %in% design_terms) || !has_interaction) {
+    stop("design must contain source, treatment, and their interaction, ",
+         "i.e. ~ ... + source + treatment + source:treatment; got ",
+         deparse(design))
+  }
+
   if (verbose) message("=== Loading configuration ===")
   dat_settings <- jsonlite::read_json(config_json_path)
 
@@ -720,6 +776,19 @@ run_deseq2_pipeline <- function(config_json_path,
   if (!is.null(covariates)) {
     if (!"sample_name" %in% names(covariates)) {
       stop("covariates must have a 'sample_name' column")
+    }
+    dup <- unique(covariates$sample_name[duplicated(covariates$sample_name)])
+    if (length(dup) > 0) {
+      # A duplicated row would silently duplicate the sample through the whole
+      # pipeline (pseudo-replication).
+      stop("covariates has duplicated sample_name(s): ",
+           paste(utils::head(dup, 5), collapse = ", "))
+    }
+    clash <- intersect(setdiff(names(covariates), "sample_name"),
+                       names(col_data))
+    if (length(clash) > 0) {
+      stop("covariates column(s) collide with existing col_data column(s): ",
+           paste(clash, collapse = ", "))
     }
     missing <- setdiff(col_data$sample_name, covariates$sample_name)
     if (length(missing) > 0) {

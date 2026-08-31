@@ -15,9 +15,10 @@ subset_design(design, subset_variable)
 A one-sided formula.
 }
 \description{
-A subset model holds one of the two factors fixed, so it drops that factor
-and keeps the other. Any covariates in the full design are kept, since a
-nuisance term that needs adjusting in the full model needs adjusting here
-too.
+A subset model holds one of the two factors fixed, so every term involving
+that factor is dropped (its main effect and the interaction). All other
+terms are kept verbatim -- including transformed covariates like
+\code{log(weight)} -- since a nuisance term that needs adjusting in the full
+model needs adjusting here too.
 }
 \keyword{internal}

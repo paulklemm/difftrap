@@ -25,8 +25,9 @@ sample names (e.g. \code{list(WT = c("s1","s2"), KO = c("s3","s4"))}).
 \item \code{source}: named list mapping each source group (e.g. IP, Input) to a
 vector of sample names. Every sample must appear in exactly one
 treatment group \strong{and} exactly one source group.
-\item \code{treatment_comparison}: length-2 character vector
-\code{c(numerator, denominator)}, e.g. \code{c("KO", "WT")} to test KO vs WT.
+\item \code{treatment_comparison}: character vector listing every treatment level,
+ordered so that the reference (denominator) comes last, e.g.
+\code{c("KO", "WT")} to test KO vs WT.
 \item \code{source_comparison}: length-2 character vector \code{c(numerator, denominator)}.
 }
 

@@ -2,28 +2,7 @@
 # than two levels. The two-level case must keep producing byte-identical
 # contrast definitions, because published analyses filter on these effect names.
 
-make_col_data <- function(treatment_levels, source_levels = c("Input", "IP")) {
-  grid <- expand.grid(
-    treatment = treatment_levels,
-    source = source_levels,
-    stringsAsFactors = FALSE
-  )
-  tibble::tibble(
-    sample_name = paste0("s", seq_len(nrow(grid))),
-    treatment = factor(grid$treatment, levels = treatment_levels),
-    source = factor(grid$source, levels = source_levels)
-  )
-}
-
-make_settings <- function(treatment_groups, source_groups,
-                          treatment_comparison, source_comparison) {
-  list(
-    treatment = treatment_groups,
-    source = source_groups,
-    treatment_comparison = as.list(treatment_comparison),
-    source_comparison = as.list(source_comparison)
-  )
-}
+# Fixtures live in helper-data.R.
 
 # --- two levels: the existing contract ---------------------------------------
 
@@ -178,28 +157,6 @@ test_that("subset_design keeps several covariates in order", {
 })
 
 # --- low-count filter ---------------------------------------------------------
-
-# Negative-binomial counts over enough features that DESeq2's parametric
-# dispersion fit converges; pure Poisson counts make it fail.
-make_txi <- function(cd, n_genes = 200, n_zero = 50) {
-  set.seed(1)
-  mu <- rep(2^runif(n_genes, 6, 11), each = nrow(cd))
-  counts <- matrix(stats::rnbinom(n_genes * nrow(cd), mu = mu, size = 5),
-                   nrow = n_genes, byrow = TRUE,
-                   dimnames = list(paste0("g", seq_len(n_genes)), cd$sample_name))
-  counts[seq_len(n_zero), ] <- 0L
-  list(counts = counts, abundance = counts,
-       length = matrix(1000, nrow = n_genes, ncol = nrow(cd),
-                       dimnames = dimnames(counts)),
-       countsFromAbundance = "no")
-}
-
-make_replicated_col_data <- function() {
-  cd <- make_col_data(c("WT", "KO"))
-  cd <- cd[rep(seq_len(nrow(cd)), 3), ]
-  cd$sample_name <- paste0("s", seq_len(nrow(cd)))
-  cd
-}
 
 test_that("create_deseq_dataset keeps every feature by default", {
   cd <- make_replicated_col_data()

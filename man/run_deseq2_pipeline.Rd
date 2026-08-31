@@ -28,7 +28,18 @@ run_deseq2_pipeline(
 \item{level}{Analysis level: "transcript", "gene", or "both" (default: "transcript")}
 
 \item{design}{Design formula for the full interaction model
-(default: \code{~ source + treatment + source:treatment})}
+(default: \code{~ source + treatment + source:treatment}). Must contain
+\code{source}, \code{treatment}, and their interaction; additional covariate terms
+are carried into the subset models.}
+
+\item{covariates}{Optional tibble of per-sample covariates, joined onto the
+sample table by its \code{sample_name} column. Must cover every sample exactly
+once and may not repeat an existing column. Any design variable other
+than \code{source} and \code{treatment} must come from here.}
+
+\item{min_count, min_samples}{Low-count filter, passed to
+\code{\link[=create_deseq_dataset]{create_deseq_dataset()}}: keep features with at least \code{min_count} counts
+in at least \code{min_samples} samples. The defaults keep every feature.}
 
 \item{alpha}{Significance threshold for the summary statistics (default: 0.05)}
 
@@ -43,13 +54,14 @@ master_results, summary_stats, and other objects
 \description{
 End-to-end driver: reads the JSON config, loads the GTF, builds the
 transcript-to-gene mapping, imports Salmon quantifications via tximport,
-fits one full interaction model and four subset models, and returns
-shrunk LFC results for all five contrasts plus summary statistics.
+fits one full interaction model plus per-group subset models, and returns
+shrunk LFC results for every contrast plus summary statistics.
 }
 \section{Assumptions}{
-The pipeline is restricted to a \strong{2x2 factorial design}: exactly two
-\code{treatment} levels and exactly two \code{source} levels (e.g. IP / Input).
-\code{extract_factor_levels()} errors out otherwise.
+The design crosses a \strong{two-level} \code{source} factor (e.g. IP / Input) with
+a \code{treatment} factor of \strong{two or more} levels; \code{extract_factor_levels()}
+errors out otherwise. See \code{\link[=define_contrasts]{define_contrasts()}} for the contrasts emitted
+per treatment level.
 }
 
 \section{Config JSON schema}{
@@ -68,9 +80,11 @@ The config file must parse to a list with these keys:
   "source_comparison":    ["IP", "Input"]
 }
 }
-Both \verb{*_comparison} vectors are \code{c(numerator, denominator)}, so the
-example above produces LFCs of log2(KO/WT) and log2(IP/Input). Every
-sample must appear in exactly one treatment and one source group.
+\code{source_comparison} is \code{c(numerator, denominator)}; \code{treatment_comparison}
+lists every treatment level, ordered so that the reference (denominator)
+comes last. The example above produces LFCs of log2(KO/WT) and
+log2(IP/Input). Every sample must appear in exactly one treatment and one
+source group.
 }
 
 \section{Interaction LFC caveat}{
