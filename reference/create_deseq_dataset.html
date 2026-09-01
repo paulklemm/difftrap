@@ -17,7 +17,7 @@
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">difftrap</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.0.0.9006</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.0.0.9009</span>
       </span>
     </div>
 
@@ -49,6 +49,8 @@
 <span>  <span class="va">col_data</span>,</span>
 <span>  level <span class="op">=</span> <span class="st">"transcript"</span>,</span>
 <span>  design <span class="op">=</span> <span class="op">~</span><span class="va">source</span> <span class="op">+</span> <span class="va">treatment</span> <span class="op">+</span> <span class="va">source</span><span class="op">:</span><span class="va">treatment</span>,</span>
+<span>  min_count <span class="op">=</span> <span class="fl">0</span>,</span>
+<span>  min_samples <span class="op">=</span> <span class="fl">0</span>,</span>
 <span>  verbose <span class="op">=</span> <span class="cn">TRUE</span></span>
 <span><span class="op">)</span></span></code></pre></div>
     </div>
@@ -73,6 +75,22 @@
 <dd><p>Design formula (default: ~ source + treatment + source:treatment)</p></dd>
 
 
+<dt id="arg-min-count">min_count<a class="anchor" aria-label="anchor" href="#arg-min-count"></a></dt>
+<dd><p>Drop features without at least this many counts in
+<code>min_samples</code> samples. Default 0, which keeps every feature – apeglm
+shrinks a noisy near-zero feature's LFC to 0 but leaves its Wald p-value
+untouched, so unfiltered results can carry "significant" features with a
+base mean near zero and no effect size.</p></dd>
+
+
+<dt id="arg-min-samples">min_samples<a class="anchor" aria-label="anchor" href="#arg-min-samples"></a></dt>
+<dd><p>Number of samples that must meet <code>min_count</code>. Only used
+when <code>min_count &gt; 0</code>. Default 0, in which case the smallest cell over the
+design's factor columns is used. An explicit value larger than the number
+of samples is capped at the sample count, since subset models see fewer
+samples than the full dataset.</p></dd>
+
+
 <dt id="arg-verbose">verbose<a class="anchor" aria-label="anchor" href="#arg-verbose"></a></dt>
 <dd><p>Print dimensions and size factors (default: TRUE)</p></dd>
 
@@ -94,7 +112,7 @@
 </div>
 
 <div class="pkgdown">
-  <p></p><p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.2.0.</p>
+  <p></p><p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.2.1.</p>
 </div>
 
       </footer></div>

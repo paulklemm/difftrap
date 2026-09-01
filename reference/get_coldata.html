@@ -19,7 +19,7 @@ intended reference (denominator) level."><!-- mathjax --><script src="https://cd
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">difftrap</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.0.0.9006</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.0.0.9009</span>
       </span>
     </div>
 
@@ -70,8 +70,9 @@ sample names (e.g. <code>list(WT = c("s1","s2"), KO = c("s3","s4"))</code>).</p>
 <li><p><code>source</code>: named list mapping each source group (e.g. IP, Input) to a
 vector of sample names. Every sample must appear in exactly one
 treatment group <strong>and</strong> exactly one source group.</p></li>
-<li><p><code>treatment_comparison</code>: length-2 character vector
-<code>c(numerator, denominator)</code>, e.g. <code>c("KO", "WT")</code> to test KO vs WT.</p></li>
+<li><p><code>treatment_comparison</code>: character vector listing every treatment level,
+ordered so that the reference (denominator) comes last, e.g.
+<code>c("KO", "WT")</code> to test KO vs WT.</p></li>
 <li><p><code>source_comparison</code>: length-2 character vector <code>c(numerator, denominator)</code>.</p></li>
 </ul><p>Both <code>*_comparison</code> vectors must list exactly the levels present in the
 corresponding group. The function fails fast if any required key is
@@ -91,7 +92,7 @@ either grouping.</p>
 </div>
 
 <div class="pkgdown">
-  <p></p><p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.2.0.</p>
+  <p></p><p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.2.1.</p>
 </div>
 
       </footer></div>
