@@ -22,7 +22,7 @@ large, and allows apeglm shrinkage for all contrasts."><!-- mathjax --><script s
       </button>
       <span class="navbar-brand">
         <a class="navbar-link" href="../index.html">difftrap</a>
-        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.0.0.9009</span>
+        <span class="version label label-default" data-toggle="tooltip" data-placement="bottom" title="">0.0.0.9010</span>
       </span>
     </div>
 
@@ -54,7 +54,11 @@ large, and allows apeglm shrinkage for all contrasts.</p>
     </div>
 
     <div id="ref-usage">
-    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">define_contrasts</span><span class="op">(</span><span class="va">factor_levels</span>, verbose <span class="op">=</span> <span class="cn">TRUE</span><span class="op">)</span></span></code></pre></div>
+    <div class="sourceCode"><pre class="sourceCode r"><code><span><span class="fu">define_contrasts</span><span class="op">(</span></span>
+<span>  <span class="va">factor_levels</span>,</span>
+<span>  shrinkage <span class="op">=</span> <span class="fu"><a href="https://rdrr.io/r/base/c.html" class="external-link">c</a></span><span class="op">(</span><span class="st">"apeglm"</span>, <span class="st">"ashr"</span>, <span class="st">"none"</span><span class="op">)</span>,</span>
+<span>  verbose <span class="op">=</span> <span class="cn">TRUE</span></span>
+<span><span class="op">)</span></span></code></pre></div>
     </div>
 
     <div id="arguments">
@@ -64,6 +68,13 @@ large, and allows apeglm shrinkage for all contrasts.</p>
 <dl><dt id="arg-factor-levels">factor_levels<a class="anchor" aria-label="anchor" href="#arg-factor-levels"></a></dt>
 <dd><p>List from <code><a href="extract_factor_levels.html">extract_factor_levels()</a></code>, with
 treatment_levels, source_a and source_b</p></dd>
+
+
+<dt id="arg-shrinkage">shrinkage<a class="anchor" aria-label="anchor" href="#arg-shrinkage"></a></dt>
+<dd><p>LFC shrinkage applied to every contrast: "apeglm"
+(default), "ashr", or "none" for the plain Wald estimate. apeglm's
+posterior mode is bimodal for an interaction coefficient at small n, so
+its LFC can flip between the MLE and ~0 with the sample set.</p></dd>
 
 
 <dt id="arg-verbose">verbose<a class="anchor" aria-label="anchor" href="#arg-verbose"></a></dt>
