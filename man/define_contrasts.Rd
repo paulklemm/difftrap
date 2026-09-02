@@ -4,11 +4,20 @@
 \alias{define_contrasts}
 \title{Define contrasts for differential expression analysis}
 \usage{
-define_contrasts(factor_levels, verbose = TRUE)
+define_contrasts(
+  factor_levels,
+  shrinkage = c("apeglm", "ashr", "none"),
+  verbose = TRUE
+)
 }
 \arguments{
 \item{factor_levels}{List from \code{\link[=extract_factor_levels]{extract_factor_levels()}}, with
 treatment_levels, source_a and source_b}
+
+\item{shrinkage}{LFC shrinkage applied to every contrast: "apeglm"
+(default), "ashr", or "none" for the plain Wald estimate. apeglm's
+posterior mode is bimodal for an interaction coefficient at small n, so
+its LFC can flip between the MLE and ~0 with the sample set.}
 
 \item{verbose}{Print contrast info (default: TRUE)}
 }

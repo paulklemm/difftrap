@@ -403,11 +403,18 @@ create_deseq_dataset <- function(txi, col_data,
 #'
 #' @param factor_levels List from [extract_factor_levels()], with
 #'   treatment_levels, source_a and source_b
+#' @param shrinkage LFC shrinkage applied to every contrast: "apeglm"
+#'   (default), "ashr", or "none" for the plain Wald estimate. apeglm's
+#'   posterior mode is bimodal for an interaction coefficient at small n, so
+#'   its LFC can flip between the MLE and ~0 with the sample set.
 #' @param verbose Print contrast info (default: TRUE)
 #' @return Tibble with contrast definitions including model_type, model_id,
 #'   subset_variable, and subset_level columns
 #' @export
-define_contrasts <- function(factor_levels, verbose = TRUE) {
+define_contrasts <- function(factor_levels,
+                             shrinkage = c("apeglm", "ashr", "none"),
+                             verbose = TRUE) {
+  shrinkage <- match.arg(shrinkage)
   if (is.null(factor_levels$treatment_levels)) {
     stop("factor_levels must contain 'treatment_levels'; ",
          "build it with extract_factor_levels()")
@@ -431,7 +438,7 @@ define_contrasts <- function(factor_levels, verbose = TRUE) {
     effect_name = paste0(source_coef_print, "_in_", treatment_levels),
     description = paste("Source effect in", treatment_levels),
     coef = source_coef_name,
-    shrinkage_method = "apeglm",
+    shrinkage_method = shrinkage,
     model_type = "subset",
     model_id = paste0("subset_treatment_", make.names(treatment_levels)),
     subset_variable = "treatment",
@@ -446,7 +453,7 @@ define_contrasts <- function(factor_levels, verbose = TRUE) {
       description = paste0("Treatment effect (", treatment_rest, ") in ", sl),
       coef = make.names(paste0("treatment_", treatment_rest, "_vs_",
                                treatment_ref)),
-      shrinkage_method = "apeglm",
+      shrinkage_method = shrinkage,
       model_type = "subset",
       model_id = paste0("subset_source_", make.names(sl)),
       subset_variable = "source",
@@ -464,7 +471,7 @@ define_contrasts <- function(factor_levels, verbose = TRUE) {
     # The interaction coefficient keeps its model-matrix name, run through
     # make.names() as a whole: "sourceIP:treatment6h" -> "sourceIP.treatment6h".
     coef = make.names(paste0("source", source_b, ":treatment", treatment_rest)),
-    shrinkage_method = "apeglm",
+    shrinkage_method = shrinkage,
     model_type = "full",
     model_id = "full",
     subset_variable = NA_character_,
@@ -488,7 +495,9 @@ define_contrasts <- function(factor_levels, verbose = TRUE) {
 #'
 #' Extracts results from the appropriate DESeq2 model for each contrast.
 #' Each contrast specifies a model_id that maps to the corresponding
-#' DESeqDataSet in dds_list.
+#' DESeqDataSet in dds_list. Shrunk results also carry the unshrunk estimate
+#' as `log2FoldChange_MLE` / `lfcSE_MLE`; a `shrinkage_method` of "none"
+#' returns the plain Wald results.
 #'
 #' @param dds_list Named list of DESeqDataSet objects (e.g. "full" for
 #'   interaction model, "subset_treatment_X" / "subset_source_X" for subset models)
@@ -508,7 +517,14 @@ extract_de_results <- function(dds_list, contrasts_info) {
       if (is.null(dds)) {
         stop("No DESeq2 model found for model_id: ", model_id)
       }
-      DESeq2::lfcShrink(dds, coef = coef, type = method)
+      res_mle <- DESeq2::results(dds, name = coef)
+      if (method == "none") {
+        return(res_mle)
+      }
+      res <- DESeq2::lfcShrink(dds, coef = coef, type = method, res = res_mle)
+      res$log2FoldChange_MLE <- res_mle$log2FoldChange
+      res$lfcSE_MLE <- res_mle$lfcSE
+      res
     }
   )
 
@@ -675,7 +691,7 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
 #' End-to-end driver: reads the JSON config, loads the GTF, builds the
 #' transcript-to-gene mapping, imports Salmon quantifications via tximport,
 #' fits one full interaction model plus per-group subset models, and returns
-#' shrunk LFC results for every contrast plus summary statistics.
+#' (shrunk) LFC results for every contrast plus summary statistics.
 #'
 #' # Assumptions
 #'
@@ -728,6 +744,8 @@ calculate_summary_stats <- function(master_results, alpha = 0.05, verbose = TRUE
 #'   sample table by its `sample_name` column. Must cover every sample exactly
 #'   once and may not repeat an existing column. Any design variable other
 #'   than `source` and `treatment` must come from here.
+#' @param shrinkage LFC shrinkage for every contrast, passed to
+#'   [define_contrasts()]: "apeglm" (default), "ashr", or "none".
 #' @param min_count,min_samples Low-count filter, passed to
 #'   [create_deseq_dataset()]: keep features with at least `min_count` counts
 #'   in at least `min_samples` samples. The defaults keep every feature.
@@ -744,6 +762,7 @@ run_deseq2_pipeline <- function(config_json_path,
                                 level = "transcript",
                                 design = ~ source + treatment + source:treatment,
                                 covariates = NULL,
+                                shrinkage = c("apeglm", "ashr", "none"),
                                 min_count = 0,
                                 min_samples = 0,
                                 alpha = 0.05,
@@ -753,6 +772,7 @@ run_deseq2_pipeline <- function(config_json_path,
   if (!level %in% c("transcript", "gene", "both")) {
     stop("level must be 'transcript', 'gene', or 'both'")
   }
+  shrinkage <- match.arg(shrinkage)
 
   # The contrast machinery requires the factorial terms; a design without them
   # would fit fine and only fail hours later in lfcShrink.
@@ -814,7 +834,8 @@ run_deseq2_pipeline <- function(config_json_path,
   factor_levels <- extract_factor_levels(col_data, print_table = verbose)
 
   if (verbose) message("=== Defining contrasts ===")
-  contrasts_info <- define_contrasts(factor_levels, verbose = verbose)
+  contrasts_info <- define_contrasts(factor_levels, shrinkage = shrinkage,
+                                     verbose = verbose)
 
   if (level == "both") {
     if (verbose) message("\n=== TRANSCRIPT-LEVEL ANALYSIS ===")

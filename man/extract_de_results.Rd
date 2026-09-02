@@ -19,5 +19,7 @@ List of DESeq2 results objects
 \description{
 Extracts results from the appropriate DESeq2 model for each contrast.
 Each contrast specifies a model_id that maps to the corresponding
-DESeqDataSet in dds_list.
+DESeqDataSet in dds_list. Shrunk results also carry the unshrunk estimate
+as \code{log2FoldChange_MLE} / \code{lfcSE_MLE}; a \code{shrinkage_method} of "none"
+returns the plain Wald results.
 }

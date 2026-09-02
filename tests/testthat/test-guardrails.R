@@ -120,3 +120,13 @@ test_that("define_contrasts rejects factor_levels without treatment_levels", {
                     source_a = "Input", source_b = "IP")
   expect_error(define_contrasts(old_style, verbose = FALSE), "treatment_levels")
 })
+
+# --- shrinkage --------------------------------------------------------------
+
+test_that("run_deseq2_pipeline rejects an unknown shrinkage method early", {
+  expect_error(
+    run_deseq2_pipeline(make_config_json(), "nope.gtf",
+                        shrinkage = "foo", verbose = FALSE),
+    "apeglm"
+  )
+})

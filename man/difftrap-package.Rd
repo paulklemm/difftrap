@@ -6,15 +6,10 @@
 \alias{difftrap-package}
 \title{difftrap: Differential Expression Analysis for TRAP Experiments}
 \description{
-A DESeq2-based pipeline for differential expression analysis of TRAP (Translating Ribosome Affinity Purification) RNA-seq experiments with a source (IP/Input) by treatment factorial design. Imports Salmon quantifications via tximport, fits separate subset models for the non-interaction contrasts and a full interaction model for the interaction term, and applies apeglm shrinkage to all contrasts.
+A DESeq2-based pipeline for differential expression analysis of TRAP (Translating Ribosome Affinity Purification) RNA-seq experiments with a source (IP/Input) by treatment factorial design. Imports Salmon quantifications via tximport, fits separate subset models for the non-interaction contrasts and a full interaction model for the interaction term, and applies LFC shrinkage (apeglm by default, ashr optional) to all contrasts.
 }
 \author{
 \strong{Maintainer}: Paul Klemm \email{paul.klemm@sf.mpg.de} (\href{https://orcid.org/0000-0002-5985-1737}{ORCID})
-
-Authors:
-\itemize{
-  \item Paul Klemm \email{paul.klemm@sf.mpg.de} (\href{https://orcid.org/0000-0002-5985-1737}{ORCID})
-}
 
 }
 \keyword{internal}

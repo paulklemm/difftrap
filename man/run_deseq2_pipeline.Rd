@@ -11,6 +11,7 @@ run_deseq2_pipeline(
   level = "transcript",
   design = ~source + treatment + source:treatment,
   covariates = NULL,
+  shrinkage = c("apeglm", "ashr", "none"),
   min_count = 0,
   min_samples = 0,
   alpha = 0.05,
@@ -37,6 +38,9 @@ sample table by its \code{sample_name} column. Must cover every sample exactly
 once and may not repeat an existing column. Any design variable other
 than \code{source} and \code{treatment} must come from here.}
 
+\item{shrinkage}{LFC shrinkage for every contrast, passed to
+\code{\link[=define_contrasts]{define_contrasts()}}: "apeglm" (default), "ashr", or "none".}
+
 \item{min_count, min_samples}{Low-count filter, passed to
 \code{\link[=create_deseq_dataset]{create_deseq_dataset()}}: keep features with at least \code{min_count} counts
 in at least \code{min_samples} samples. The defaults keep every feature.}
@@ -55,7 +59,7 @@ master_results, summary_stats, and other objects
 End-to-end driver: reads the JSON config, loads the GTF, builds the
 transcript-to-gene mapping, imports Salmon quantifications via tximport,
 fits one full interaction model plus per-group subset models, and returns
-shrunk LFC results for every contrast plus summary statistics.
+(shrunk) LFC results for every contrast plus summary statistics.
 }
 \section{Assumptions}{
 The design crosses a \strong{two-level} \code{source} factor (e.g. IP / Input) with
